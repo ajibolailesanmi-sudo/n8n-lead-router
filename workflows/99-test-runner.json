@@ -1,0 +1,574 @@
+{
+  "name": "99 - Test Runner",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ed50f5e9-5ab4-52ce-a225-1da6d8ac94ec",
+      "name": "Run All Tests",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "68ea483c-fd03-50ce-91f0-95ad7e8d2c31",
+              "name": "webhook_url",
+              "value": "http://localhost:5678/webhook/lead-intake",
+              "type": "string"
+            },
+            {
+              "id": "a507f9fc-36b4-52f4-a89c-1fe19aaedc97",
+              "name": "wait_seconds",
+              "value": 75,
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "cb1db894-dc99-5e54-9c39-89225b71c214",
+      "name": "Test Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ],
+      "notes": "Every rep must be available = TRUE in the reps tab before running.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Test Plan\n// Defines every automated test case with its payload and expected result.\n// A run ID is added to every event ID and email so each run is independent of earlier runs.\n\nconst settings = $('Test Settings').first().json;\nconst run = 't' + Date.now().toString(36).slice(-6);\nconst mail = (local, domain) => `${local}+${run}@${domain}`;\nconst ev = (id) => `${run}-${id}`;\n\nconst cases = [\n  {\n    id: 'TC-01', batch: 'A', title: 'Clean lead in an East state is routed by territory',\n    payload: { event_id: ev('TC-01'), first_name: 'Ava', last_name: 'Martin', email: mail('Ava.Martin', 'HarborviewDental.example.com'), phone: '(617) 555-0101', company: 'Harborview Dental Group', job_title: 'Office Manager', state: 'Massachusetts', country: 'USA', company_size: '35', budget: '$8,000', service_interest: 'Managed IT Support', timeline: '1-3 months', message: 'We need help desk support for 3 offices.' },\n    expect: { event: 'routed', priority: 'Cold', score: 35, pool: 'east', route_type: 'territory', lead: { email: mail('ava.martin', 'harborviewdental.example.com'), phone: '+16175550101', state: 'MA', country: 'US', company_size_band: '11-50', budget_band: '$5k-$15k' } },\n  },\n  {\n    id: 'TC-02', batch: 'A', title: 'Lead in a West state is routed to the West pool',\n    payload: { event_id: ev('TC-02'), first_name: 'Noah', last_name: 'Kim', email: mail('noah.kim', 'cascadebrewing.example.com'), phone: '503.555.0102', company: 'Cascade Brewing Co', job_title: 'Operations Manager', state: 'OR', country: 'United States', company_size: '11-50', budget: '$15k-$50k', service_interest: 'Cybersecurity', timeline: '3-6 months' },\n    expect: { event: 'routed', priority: 'Warm', score: 50, pool: 'west', route_type: 'territory', lead: { phone: '+15035550102', state: 'OR', budget_band: '$15k-$50k' } },\n  },\n  {\n    id: 'TC-03', batch: 'A', title: 'Hot lead goes to the Enterprise pool regardless of territory',\n    payload: { event_id: ev('TC-03'), first_name: 'Olivia', last_name: 'Grant', email: mail('olivia.grant', 'meridianhealth.example.com'), phone: '+1 312 555 0103', company: 'Meridian Health Partners', job_title: 'VP of Operations', state: 'IL', country: 'US', company_size: '450', budget: '$75,000', service_interest: 'Cloud Migration', timeline: 'ASAP' },\n    expect: { event: 'routed', priority: 'Hot', score: 105, pool: 'enterprise', route_type: 'score', lead: { company_size_band: '201-1000', budget_band: '$50k+', phone: '+13125550103' } },\n  },\n  {\n    id: 'TC-04', batch: 'A', title: 'Messy input is cleaned (case, spaces, state name, phone extension, bands)',\n    payload: { event_id: ev('TC-04'), first_name: '  liam ', last_name: \" o'connor \", email: `  ${mail('LIAM.OCONNOR', 'Brightline.example.com')} `, phone: '212-555-0104 ext 22', company: 'Brightline Media', job_title: 'Marketing Coordinator', state: 'new york', country: 'u.s.', company_size: '8', budget: 'under 5k', service_interest: 'managed it', timeline: 'asap' },\n    expect: { event: 'routed', priority: 'Cold', score: 30, pool: 'east', lead: { first_name: 'Liam', last_name: \"O'Connor\", email: mail('liam.oconnor', 'brightline.example.com'), phone: '+12125550104', state: 'NY', country: 'US', company_size_band: '1-10', budget_band: 'Under $5k', service_interest: 'Managed IT Support', timeline: 'ASAP' } },\n  },\n  {\n    id: 'TC-05', batch: 'A', title: 'Free email domain gets no business-email points',\n    payload: { event_id: ev('TC-05'), first_name: 'Emma', last_name: 'Diaz', email: mail('emma.diaz', 'gmail.com'), phone: '(512) 555-0105', company: 'Diaz Accounting', job_title: 'Owner', state: 'TX', country: 'US', company_size: '5', budget: '$5k-$15k', service_interest: 'Microsoft 365 Setup', timeline: '1-3 months' },\n    expect: { event: 'routed', priority: 'Cold', score: 35, pool: 'east', lead: { email_type: 'free', service_interest: 'Microsoft 365 Setup' } },\n  },\n  {\n    id: 'TC-06', batch: 'A', title: 'Lead outside the US goes to the Sales Manager',\n    payload: { event_id: ev('TC-06'), first_name: 'Sophie', last_name: 'Laurent', email: mail('sophie.laurent', 'atelierlaurent.example.com'), phone: '+33 1 42 68 53 00', company: 'Atelier Laurent', job_title: 'Director', state: '', country: 'France', company_size: '51-200', budget: '$15k-$50k', service_interest: 'IT Consulting', timeline: '3-6 months' },\n    expect: { event: 'routed', priority: 'Warm', score: 60, pool: 'manager', route_type: 'no_territory', rep_id: 'rep_rachel', lead: { phone: '+33142685300', country: 'France' } },\n  },\n  {\n    id: 'TC-07', batch: 'A', title: 'Second Hot lead rotates to the other Enterprise rep',\n    payload: { event_id: ev('TC-07'), first_name: 'Ethan', last_name: 'Brooks', email: mail('ethan.brooks', 'summitlogistics.example.com'), phone: '(404) 555-0107', company: 'Summit Logistics', job_title: 'CTO', state: 'GA', country: 'US', company_size: '1000+', budget: '$50k+', service_interest: 'Cybersecurity', timeline: 'ASAP' },\n    expect: { event: 'routed', priority: 'Hot', score: 115, pool: 'enterprise', route_type: 'score' },\n  },\n  {\n    id: 'TC-08', batch: 'A', title: 'East lead for round-robin balance',\n    payload: { event_id: ev('TC-08'), first_name: 'Mia', last_name: 'Patel', email: mail('mia.patel', 'coastalcpa.example.com'), phone: '973-555-0108', company: 'Coastal CPA Partners', job_title: 'Office Manager', state: 'NJ', country: 'US', company_size: '11-50', budget: '$5k-$15k', service_interest: 'Managed IT Support', timeline: '1-3 months' },\n    expect: { event: 'routed', priority: 'Cold', score: 35, pool: 'east', route_type: 'territory' },\n  },\n  {\n    id: 'TC-09', batch: 'A', title: 'Budget range uses its midpoint (10000-20000 becomes $15k-$50k)',\n    payload: { event_id: ev('TC-09'), first_name: 'Lucas', last_name: 'Nguyen', email: mail('lucas.nguyen', 'pinecrestacademy.example.com'), phone: '(919) 555-0109', company: 'Pinecrest Academy', job_title: 'IT Coordinator', state: 'NC', country: 'US', company_size: '51-200', budget: '10000-20000', service_interest: 'Managed IT Support', timeline: '3-6 months' },\n    expect: { event: 'routed', priority: 'Warm', score: 55, pool: 'east', route_type: 'territory', lead: { budget_band: '$15k-$50k' } },\n  },\n  {\n    id: 'TC-10', batch: 'A', title: 'West lead for round-robin balance',\n    payload: { event_id: ev('TC-10'), first_name: 'Isabella', last_name: 'Rossi', email: mail('isabella.rossi', 'sunsetvet.example.com'), phone: '(602) 555-0110', company: 'Sunset Veterinary Clinic', job_title: 'Practice Manager', state: 'AZ', country: 'US', company_size: '11-50', budget: '$5k-$15k', service_interest: 'Cybersecurity', timeline: 'ASAP' },\n    expect: { event: 'routed', priority: 'Warm', score: 55, pool: 'west', route_type: 'territory' },\n  },\n  {\n    id: 'TC-11', batch: 'A', title: 'Missing email is rejected and sent for review, not dropped',\n    payload: { event_id: ev('TC-11'), first_name: 'Henry', last_name: 'Walsh', email: '', phone: '(303) 555-0111', company: 'Walsh Construction', job_title: 'Owner', state: 'CO', country: 'US', company_size: '11-50', budget: '$5k-$15k', service_interest: 'Managed IT Support', timeline: 'ASAP' },\n    expect: { event: 'rejected', reason_includes: 'Missing email' },\n  },\n  {\n    id: 'TC-12', batch: 'A', title: 'Invalid email format is rejected',\n    payload: { event_id: ev('TC-12'), first_name: 'Harper', last_name: 'Young', email: `harper.young.${run}.at.youngdesign.example.com`, company: 'Young Design Studio', service_interest: 'IT Consulting', state: 'VA', country: 'US' },\n    expect: { event: 'rejected', reason_includes: 'Invalid email format' },\n  },\n  {\n    id: 'TC-13', batch: 'A', title: 'Several missing fields are all reported',\n    payload: { event_id: ev('TC-13'), first_name: 'Jacob', last_name: 'Reed', email: mail('jacob.reed', 'reedfamilyfarms.example.com'), company: '', service_interest: '', state: 'IA' },\n    expect: { event: 'rejected', reason_includes: 'Missing company; Missing service interest' },\n  },\n  {\n    id: 'TC-15', batch: 'A', title: 'Repeat delivery without an event ID is caught by the payload fingerprint',\n    repeat: 2,\n    payload: { submitted_at: '2026-10-05T15:00:00Z', first_name: 'Zoe', last_name: 'Carter', email: mail('zoe.carter', 'lakesidelaw.example.com'), phone: '(206) 555-0115', company: 'Lakeside Law Group', job_title: 'Managing Partner', state: 'WA', country: 'US', company_size: '11-50', budget: '$5k-$15k', service_interest: 'Cybersecurity', timeline: 'ASAP' },\n    expect: { counts: { routed: 1, duplicate_dropped: 1 }, by: 'email', email: mail('zoe.carter', 'lakesidelaw.example.com') },\n  },\n  {\n    id: 'TC-18', batch: 'A', title: 'SQL and HTML in input are stored as plain text',\n    payload: { event_id: ev('TC-18'), first_name: 'Bobby', last_name: 'Tables', email: mail('bobby.tables', 'injection-test.example.com'), company: \"Robert'); DROP TABLE lead_log;--\", job_title: 'Analyst', state: 'CO', country: 'US', company_size: '1-10', budget: 'Under $5k', service_interest: 'IT Consulting', timeline: 'Just researching', message: '<script>alert(1)</script>' },\n    expect: { event: 'routed', priority: 'Cold', score: 15, pool: 'west', company: \"Robert'); DROP TABLE lead_log;--\", warning_includes: 'kept out of HubSpot' },\n  },\n  {\n    id: 'TC-19', batch: 'A', title: 'Full name field is split into first and last name',\n    payload: { event_id: ev('TC-19'), name: 'Chloe Anne Ramirez', email: mail('chloe.ramirez', 'verdantlabs.example.com'), phone: '(305) 555-0119', company: 'Verdant Labs', job_title: 'Head of IT', state: 'FL', country: 'US', company_size: '51-200', budget: '25k', service_interest: 'Cybersecurity', timeline: '1-3 months' },\n    expect: { event: 'routed', priority: 'Hot', score: 90, pool: 'enterprise', lead: { first_name: 'Chloe', last_name: 'Anne Ramirez', budget_band: '$15k-$50k' } },\n  },\n  {\n    id: 'TC-20', batch: 'A', title: 'Unknown state is flagged and the lead still reaches a person',\n    payload: { event_id: ev('TC-20'), first_name: 'Jack', last_name: 'Turner', email: mail('jack.turner', 'oakridgeplumbing.example.com'), phone: '(615) 555-0120', company: 'Oakridge Plumbing', job_title: 'Owner', state: 'Narnia', country: 'US', company_size: '11-50', budget: '$5k-$15k', service_interest: 'Managed IT Support', timeline: '1-3 months' },\n    expect: { event: 'routed', priority: 'Warm', score: 45, pool: 'manager', route_type: 'no_territory', rep_id: 'rep_rachel', warning_includes: 'Unknown US state' },\n  },\n  {\n    id: 'TC-14', batch: 'B', title: 'Same webhook delivered 3 times at once is processed exactly once',\n    repeat: 3,\n    payload: { event_id: ev('TC-14'), first_name: 'Grace', last_name: 'Lee', email: mail('grace.lee', 'northpointsystems.example.com'), phone: '(415) 555-0114', company: 'Northpoint Systems', job_title: 'IT Director', state: 'CA', country: 'US', company_size: '201-1000', budget: '$15k-$50k', service_interest: 'Cloud Migration', timeline: '1-3 months' },\n    expect: { counts: { routed: 1, duplicate_dropped: 2 }, by: 'event' },\n  },\n  {\n    id: 'TC-17', batch: 'AUTH', title: 'Webhook call with a wrong API key is refused',\n    payload: { event_id: ev('TC-17'), first_name: 'Mallory', last_name: 'Intruder', email: mail('mallory', 'attacker.example.com'), company: 'Unknown', service_interest: 'Other' },\n    expect: { http_status_in: [401, 403], no_log: true },\n  },\n  {\n    id: 'TC-16', batch: 'C', title: 'Returning contact goes back to the same rep and updates the same CRM contact',\n    payload: { event_id: ev('TC-16'), first_name: 'Ava', last_name: 'Martin', email: mail('ava.martin', 'harborviewdental.example.com'), company: 'Harborview Dental Group', state: 'MA', country: 'US', service_interest: 'Cybersecurity', timeline: 'ASAP', message: 'Following up: we also want a security review.' },\n    expect: { event: 'routed', route_type: 'returning', same_rep_as: 'TC-01', crm_is_new: false },\n  },\n];\n\nreturn [{ json: { run_id: run, webhook_url: settings.webhook_url, cases } }];\n"
+      },
+      "id": "8fc5106e-d7c8-5b65-9e6f-556401616790",
+      "name": "Build Test Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Emit Batch A\n// Sends the test cases tagged with batch \"A\" to the next HTTP Request node.\n// Cases with \"repeat\" are emitted several times to simulate duplicate deliveries.\n\nconst plan = $('Build Test Plan').first().json;\nconst out = [];\nfor (const c of plan.cases.filter((x) => x.batch === 'A')) {\n  const times = c.repeat || 1;\n  for (let n = 1; n <= times; n++) {\n    out.push({ json: { test_id: c.id, attempt: n, webhook_url: plan.webhook_url, payload: c.payload } });\n  }\n}\nreturn out;\n"
+      },
+      "id": "3796f158-0502-5e93-b891-0e459eb88249",
+      "name": "Emit Batch A",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.webhook_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 300
+            }
+          }
+        }
+      },
+      "id": "74a459ac-791b-59c1-8235-0f76e4a8bf43",
+      "name": "Send Batch A",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "lrWebhookKey0001",
+          "name": "Lead Router - Webhook API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Emit Batch B\n// Sends the test cases tagged with batch \"B\" to the next HTTP Request node.\n// Cases with \"repeat\" are emitted several times to simulate duplicate deliveries.\n\nconst plan = $('Build Test Plan').first().json;\nconst out = [];\nfor (const c of plan.cases.filter((x) => x.batch === 'B')) {\n  const times = c.repeat || 1;\n  for (let n = 1; n <= times; n++) {\n    out.push({ json: { test_id: c.id, attempt: n, webhook_url: plan.webhook_url, payload: c.payload } });\n  }\n}\nreturn out;\n"
+      },
+      "id": "ac6c861e-a50f-527c-8748-0260273303e9",
+      "name": "Emit Batch B",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.webhook_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "84e50d45-6609-5e21-90c0-ae22305fba03",
+      "name": "Send Batch B (parallel)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "lrWebhookKey0001",
+          "name": "Lead Router - Webhook API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Emit Batch AUTH\n// Sends the test cases tagged with batch \"AUTH\" to the next HTTP Request node.\n// Cases with \"repeat\" are emitted several times to simulate duplicate deliveries.\n\nconst plan = $('Build Test Plan').first().json;\nconst out = [];\nfor (const c of plan.cases.filter((x) => x.batch === 'AUTH')) {\n  const times = c.repeat || 1;\n  for (let n = 1; n <= times; n++) {\n    out.push({ json: { test_id: c.id, attempt: n, webhook_url: plan.webhook_url, payload: c.payload } });\n  }\n}\nreturn out;\n"
+      },
+      "id": "cbb1e826-0c14-5afc-a93a-3b7c80c5c8f6",
+      "name": "Emit Auth Test",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.webhook_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "wrong-key-for-testing"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "9fafa766-b227-5d7d-aa90-ef29f64b6789",
+      "name": "Send With Wrong API Key",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 20,
+        "unit": "seconds"
+      },
+      "id": "da7b886e-a93a-593b-9502-8d4784a1411b",
+      "name": "Wait Before Returning-Contact Test",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        300
+      ],
+      "webhookId": "1ee68375-68c4-5109-a9af-a76cb9b19021"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Emit Batch C\n// Sends the test cases tagged with batch \"C\" to the next HTTP Request node.\n// Cases with \"repeat\" are emitted several times to simulate duplicate deliveries.\n\nconst plan = $('Build Test Plan').first().json;\nconst out = [];\nfor (const c of plan.cases.filter((x) => x.batch === 'C')) {\n  const times = c.repeat || 1;\n  for (let n = 1; n <= times; n++) {\n    out.push({ json: { test_id: c.id, attempt: n, webhook_url: plan.webhook_url, payload: c.payload } });\n  }\n}\nreturn out;\n"
+      },
+      "id": "fef9c2ae-6656-5193-b892-3a631163e74a",
+      "name": "Emit Batch C",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.webhook_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "073322c8-d270-56ef-9a6a-ab07141dee20",
+      "name": "Send Batch C",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2420,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "lrWebhookKey0001",
+          "name": "Lead Router - Webhook API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $('Test Settings').first().json.wait_seconds }}",
+        "unit": "seconds"
+      },
+      "id": "c89339f8-6607-5fdd-a188-59ecb98a453e",
+      "name": "Wait for Processing",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        300
+      ],
+      "webhookId": "80ea16e7-2f86-5002-9429-20f2ebce1bd9"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Everything the router logged for this test run.\nSELECT event, source_event_id, email, company, score, priority, pool, route_type,\n       rep_id, rep_name, reason, crm_contact_id, crm_is_new, details, logged_at\nFROM lead_log\nWHERE source_event_id LIKE $1 OR email LIKE $2\nORDER BY id;",
+        "options": {
+          "queryReplacement": "={{ [ $('Build Test Plan').first().json.run_id + '-%', '%+' + $('Build Test Plan').first().json.run_id + '@%' ] }}"
+        }
+      },
+      "id": "8e4e706e-26e3-5c6d-a008-1c9e0f670453",
+      "name": "Read Results from Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2860,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "lrPostgresCred01",
+          "name": "Lead Router - Postgres"
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Evaluate Results\n// Compares what the router logged for this run against each test case's expected result.\n\nconst plan = $('Build Test Plan').first().json;\nconst run = plan.run_id;\nconst rows = $('Read Results from Log').all().map((i) => i.json).filter((r) => r && r.event);\n\n// HTTP status of every request, matched back to its test case by position.\nconst sends = [];\nfor (const [emitter, sender] of [\n  ['Emit Batch A', 'Send Batch A'],\n  ['Emit Batch B', 'Send Batch B (parallel)'],\n  ['Emit Auth Test', 'Send With Wrong API Key'],\n  ['Emit Batch C', 'Send Batch C'],\n]) {\n  let ins = [];\n  let outs = [];\n  try { ins = $(emitter).all(); outs = $(sender).all(); } catch (e) { continue; }\n  ins.forEach((item, idx) => sends.push({ test_id: item.json.test_id, status: Number(outs[idx]?.json?.statusCode || 0) }));\n}\n\nconst evId = (id) => `${run}-${id}`;\nconst rowsFor = (c) => (c.expect.by === 'email'\n  ? rows.filter((r) => r.email === c.expect.email)\n  : rows.filter((r) => r.source_event_id === evId(c.id)));\nconst finalRow = (c) => rowsFor(c).find((r) => ['routed', 'unassigned', 'rejected'].includes(r.event));\n\nconst results = [];\nconst add = (id, title, expected, actual, passed) => results.push({ json: { run_id: run, test_id: id, title, expected, actual, passed } });\nconst fmt = (o) => Object.entries(o).map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ');\n\nfor (const c of plan.cases) {\n  const e = c.expect;\n  if (e.counts) {\n    const got = {};\n    for (const k of Object.keys(e.counts)) got[k] = rowsFor(c).filter((r) => r.event === k).length;\n    add(c.id, c.title, fmt(e.counts), fmt(got), Object.keys(e.counts).every((k) => got[k] === e.counts[k]));\n    continue;\n  }\n  if (e.http_status_in) {\n    const statuses = sends.filter((s) => s.test_id === c.id).map((s) => s.status);\n    const logged = rowsFor(c).length;\n    const ok = statuses.length > 0 && statuses.every((s) => e.http_status_in.includes(s)) && logged === 0;\n    add(c.id, c.title, `http_status in ${e.http_status_in.join('/')}, log rows=0`, `http_status=${statuses.join('/') || 'none'}, log rows=${logged}`, ok);\n    continue;\n  }\n  const row = finalRow(c);\n  if (!row) {\n    add(c.id, c.title, fmt({ event: e.event }), 'No result logged yet (still processing or failed; check n8n executions)', false);\n    continue;\n  }\n  const exp = {};\n  const act = {};\n  const check = (key, expected, actual) => { exp[key] = expected; act[key] = actual ?? '(blank)'; };\n  check('event', e.event, row.event);\n  for (const key of ['priority', 'score', 'pool', 'route_type', 'rep_id', 'company']) {\n    if (e[key] !== undefined) check(key, e[key], row[key]);\n  }\n  const lead = row.details?.lead || {};\n  for (const [key, value] of Object.entries(e.lead || {})) check(key, value, lead[key]);\n  if (e.reason_includes) check('reason contains', e.reason_includes, String(row.reason || '').includes(e.reason_includes) ? e.reason_includes : row.reason);\n  if (e.warning_includes) {\n    const warnings = (row.details?.warnings || []).join('; ');\n    check('warning contains', e.warning_includes, warnings.includes(e.warning_includes) ? e.warning_includes : warnings);\n  }\n  if (e.crm_is_new !== undefined) check('crm_is_new', e.crm_is_new, row.crm_is_new);\n  if (e.same_rep_as) {\n    const other = plan.cases.find((x) => x.id === e.same_rep_as);\n    const otherRow = other ? finalRow(other) : null;\n    check(`same rep as ${e.same_rep_as}`, otherRow?.rep_id || '(none)', row.rep_id);\n  }\n  const passed = Object.keys(exp).every((k) => String(exp[k]) === String(act[k]));\n  add(c.id, c.title, fmt(exp), fmt(act), passed);\n}\n\n// TC-21: round-robin balance inside each pool.\nconst rotated = rows.filter((r) => r.event === 'routed' && ['territory', 'score', 'no_territory', 'fallback'].includes(r.route_type));\nconst byPool = {};\nfor (const r of rotated) {\n  byPool[r.pool] = byPool[r.pool] || {};\n  byPool[r.pool][r.rep_name || r.rep_id] = (byPool[r.pool][r.rep_name || r.rep_id] || 0) + 1;\n}\nconst balanceProblems = [];\nfor (const pool of ['east', 'west', 'enterprise']) {\n  const counts = Object.values(byPool[pool] || {});\n  const total = counts.reduce((a, b) => a + b, 0);\n  if (total >= 2 && counts.length < 2) balanceProblems.push(`${pool}: only one rep used`);\n  if (counts.length && Math.max(...counts) - Math.min(...counts) > 1) balanceProblems.push(`${pool}: uneven`);\n}\nadd('TC-21', 'Round-robin keeps every pool balanced (difference of 1 at most)',\n  'east, west and enterprise each split across 2 reps, difference <= 1',\n  Object.entries(byPool).map(([p, reps]) => `${p}: ${fmt(reps)}`).join(' | ') + (balanceProblems.length ? ` | PROBLEMS: ${balanceProblems.join('; ')}` : ''),\n  balanceProblems.length === 0 && rotated.length > 0);\n\n// TC-22: every valid delivery is acknowledged immediately with 202 Accepted.\nconst valid = sends.filter((s) => s.test_id !== 'TC-17');\nconst not202 = valid.filter((s) => s.status !== 202);\nadd('TC-22', 'Webhook acknowledges every valid delivery with 202 Accepted',\n  `${valid.length} of ${valid.length} requests returned 202`,\n  `${valid.length - not202.length} of ${valid.length} returned 202${not202.length ? ` (others: ${not202.map((s) => `${s.test_id}=${s.status}`).join(', ')})` : ''}`,\n  valid.length > 0 && not202.length === 0);\n\nresults.sort((a, b) => a.json.test_id.localeCompare(b.json.test_id));\nreturn results;\n"
+      },
+      "id": "9e05fc72-d4b1-5f59-96ad-178d15d5d0eb",
+      "name": "Evaluate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO test_results (run_id, test_id, title, expected, actual, passed)\nVALUES ($1, $2, $3, $4, $5, $6);",
+        "options": {
+          "queryReplacement": "={{ [ $json.run_id, $json.test_id, $json.title, $json.expected, $json.actual, $json.passed ] }}"
+        }
+      },
+      "id": "ac79ff16-d8e6-5754-b0e2-2e4eda263fbb",
+      "name": "Save Test Results",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3300,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "lrPostgresCred01",
+          "name": "Lead Router - Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Test Summary\n// One line verdict for the run, plus the list of failures to look at.\n\nconst results = $('Evaluate Results').all().map((i) => i.json);\nconst failed = results.filter((r) => !r.passed);\nreturn [{\n  json: {\n    run_id: results[0]?.run_id,\n    verdict: failed.length === 0 ? `ALL ${results.length} TESTS PASSED` : `${failed.length} OF ${results.length} TESTS FAILED`,\n    passed: results.length - failed.length,\n    failed: failed.length,\n    failed_tests: failed.map((r) => `${r.test_id}: ${r.title} | expected ${r.expected} | actual ${r.actual}`),\n    where_to_look: 'Full results are in the test_results table (view v_latest_test_run in Adminer).',\n  },\n}];\n"
+      },
+      "id": "a12a87db-4bf0-55d3-9fd8-50ea4f3522a9",
+      "name": "Test Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 99 - Test Runner\nRuns 22 automated checks: sends 23 requests to the live webhook (clean, messy, invalid, duplicate, parallel, wrong API key, returning contact), waits, then compares what the router logged with the expected result for each case. Results are saved to the `test_results` table. Needs **01 - Lead Intake** to be published.\n\nThese leads create real HubSpot contacts, Slack messages and emails in your demo accounts.",
+        "height": 180,
+        "width": 1600,
+        "color": 5
+      },
+      "id": "9e38f6fb-7db5-54ea-a8c4-897e3a28f099",
+      "name": "Note: Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        40
+      ]
+    }
+  ],
+  "connections": {
+    "Run All Tests": {
+      "main": [
+        [
+          {
+            "node": "Test Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Settings": {
+      "main": [
+        [
+          {
+            "node": "Build Test Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Test Plan": {
+      "main": [
+        [
+          {
+            "node": "Emit Batch A",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emit Batch A": {
+      "main": [
+        [
+          {
+            "node": "Send Batch A",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Batch A": {
+      "main": [
+        [
+          {
+            "node": "Emit Batch B",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emit Batch B": {
+      "main": [
+        [
+          {
+            "node": "Send Batch B (parallel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Batch B (parallel)": {
+      "main": [
+        [
+          {
+            "node": "Emit Auth Test",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emit Auth Test": {
+      "main": [
+        [
+          {
+            "node": "Send With Wrong API Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send With Wrong API Key": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Returning-Contact Test",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Returning-Contact Test": {
+      "main": [
+        [
+          {
+            "node": "Emit Batch C",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emit Batch C": {
+      "main": [
+        [
+          {
+            "node": "Send Batch C",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Batch C": {
+      "main": [
+        [
+          {
+            "node": "Wait for Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Processing": {
+      "main": [
+        [
+          {
+            "node": "Read Results from Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Results from Log": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Results": {
+      "main": [
+        [
+          {
+            "node": "Save Test Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Test Results": {
+      "main": [
+        [
+          {
+            "node": "Test Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "timezone": "America/New_York",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "8fed6605-934b-5dc6-ba21-8fcd4917c71e",
+  "id": "lrTestRunner0001",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": []
+}

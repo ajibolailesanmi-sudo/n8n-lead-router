@@ -1,0 +1,1290 @@
+{
+  "name": "02 - Process Lead",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "f6995adb-be3d-5407-8697-edb6510173bb",
+      "name": "When Called by Lead Intake",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "065934f7-489c-5d9e-834c-3f2d7a04620f",
+              "name": "config.sheet_id",
+              "value": "PASTE_YOUR_GOOGLE_SHEET_ID_HERE",
+              "type": "string"
+            },
+            {
+              "id": "d0d01c3d-974f-5bda-8406-57eedbbb6fdb",
+              "name": "config.slack_leads_channel",
+              "value": "#leads",
+              "type": "string"
+            },
+            {
+              "id": "5cd20f48-b38e-5922-bbb5-cfcf01d3a897",
+              "name": "config.slack_alerts_channel",
+              "value": "#lead-alerts",
+              "type": "string"
+            },
+            {
+              "id": "98d0a923-ad61-5424-b5a8-00dfd42ac60f",
+              "name": "config.hubspot_portal_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "3e3dc4f0-1427-5b26-a78e-afe968581a7c",
+              "name": "config.hubspot_base_url",
+              "value": "https://api.hubapi.com",
+              "type": "string"
+            },
+            {
+              "id": "fb10d32c-28b4-58b1-ae57-8e9743eaf990",
+              "name": "config.from_email",
+              "value": "you@example.com",
+              "type": "string"
+            },
+            {
+              "id": "84396bc2-5465-5f61-8801-06284380c183",
+              "name": "config.hot_threshold",
+              "value": 70,
+              "type": "number"
+            },
+            {
+              "id": "c55aa7bd-2644-5686-8462-8ea64cedd55d",
+              "name": "config.warm_threshold",
+              "value": 40,
+              "type": "number"
+            },
+            {
+              "id": "70be67d5-526b-5200-bb6d-c208b4387fcb",
+              "name": "config.fallback_pool",
+              "value": "manager",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "98abee5d-4b65-5bb7-a87e-9e439abe1c01",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        400
+      ],
+      "notes": "Edit these values once: Google Sheet ID, Slack channels, HubSpot Hub ID and the email address alerts are sent from.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize & Validate\n// Cleans every field into the standard lead record, flags problems,\n// and builds the material for the idempotency key (hashed in the next node).\n// Runs once per execution; Process Lead always receives one lead at a time.\n\nconst FREE_EMAIL_DOMAINS = new Set([\n  'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.uk', 'ymail.com', 'rocketmail.com',\n  'hotmail.com', 'outlook.com', 'live.com', 'msn.com', 'aol.com', 'icloud.com', 'me.com',\n  'mac.com', 'proton.me', 'protonmail.com', 'gmx.com', 'gmx.net', 'mail.com', 'zoho.com',\n  'yandex.com', 'comcast.net', 'verizon.net', 'att.net', 'sbcglobal.net',\n]);\n\nconst STATES = {\n  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado',\n  CT: 'Connecticut', DE: 'Delaware', DC: 'District of Columbia', FL: 'Florida', GA: 'Georgia',\n  HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas',\n  KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts',\n  MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana',\n  NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico',\n  NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma',\n  OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota',\n  TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia', WA: 'Washington',\n  WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',\n};\nconst STATE_BY_NAME = Object.fromEntries(Object.entries(STATES).map(([code, name]) => [name.toLowerCase(), code]));\nObject.assign(STATE_BY_NAME, {\n  calif: 'CA', cal: 'CA', mass: 'MA', penn: 'PA', penna: 'PA', fla: 'FL', tex: 'TX',\n  wash: 'WA', 'washington dc': 'DC', 'washington d c': 'DC', 'n carolina': 'NC',\n  's carolina': 'SC', 'n dakota': 'ND', 's dakota': 'SD', 'w virginia': 'WV',\n});\n\nconst SOURCE_LABELS = { form: 'Web form', webhook: 'Webhook', sheet: 'Google Sheet' };\n\nconst clean = (v) => (v === null || v === undefined ? '' : String(v).replace(/\\s+/g, ' ').trim());\n\n// Capitalize names typed in all lower or all upper case; keep mixed case as typed (McDonald, DeShawn).\nfunction nameCase(v) {\n  const s = clean(v);\n  if (!s) return '';\n  if (s !== s.toLowerCase() && s !== s.toUpperCase()) return s;\n  return s.toLowerCase().replace(/(^|[\\s'-])([a-z])/g, (m, sep, ch) => sep + ch.toUpperCase());\n}\n\nfunction normEmail(v) {\n  const s = clean(v).replace(/^mailto:/i, '').replace(/^<|>$/g, '').toLowerCase();\n  const valid = /^[a-z0-9._%+'-]+@[a-z0-9-]+(\\.[a-z0-9-]+)*\\.[a-z]{2,}$/.test(s) && !s.includes('..');\n  return { email: s, valid };\n}\n\nfunction normPhone(v, countryCode) {\n  const raw = clean(v);\n  if (!raw) return { phone: '', warning: '' };\n  const main = raw.split(/\\s*(?:ext\\.?|extension|x|#)\\s*\\d+\\s*$/i)[0];\n  const hasPlus = main.trim().startsWith('+');\n  const digits = main.replace(/\\D/g, '');\n  if (hasPlus && digits.length >= 8 && digits.length <= 15) return { phone: '+' + digits, warning: '' };\n  const northAmerica = !countryCode || countryCode === 'US' || countryCode === 'Canada';\n  if (northAmerica && digits.length === 10) return { phone: '+1' + digits, warning: '' };\n  if (northAmerica && digits.length === 11 && digits.startsWith('1')) return { phone: '+' + digits, warning: '' };\n  return { phone: '', warning: `Phone could not be converted to international format: ${raw}` };\n}\n\nfunction normState(v) {\n  const s = clean(v).replace(/\\./g, '').toLowerCase();\n  if (!s) return { state: '', warning: '' };\n  if (s.length === 2 && STATES[s.toUpperCase()]) return { state: s.toUpperCase(), warning: '' };\n  const code = STATE_BY_NAME[s];\n  return code ? { state: code, warning: '' } : { state: '', warning: `Unknown US state: ${clean(v)}` };\n}\n\nfunction normCountry(v, stateCode) {\n  const s = clean(v).replace(/\\./g, '').toLowerCase();\n  if (!s) return stateCode ? 'US' : '';\n  if (['us', 'usa', 'u s', 'u s a', 'united states', 'united states of america', 'america'].includes(s)) return 'US';\n  if (['ca', 'can', 'canada'].includes(s)) return 'Canada';\n  if (['uk', 'gb', 'united kingdom', 'great britain', 'england', 'scotland', 'wales'].includes(s)) return 'United Kingdom';\n  return nameCase(clean(v));\n}\n\n// Turn \"1,200\", \"35 employees\", \"11-50\" or \"1000+\" into a standard band.\nfunction sizeBand(v) {\n  const s = clean(v).toLowerCase().replace(/,/g, '');\n  if (!s) return '';\n  const canonical = { '1-10': '1-10', '11-50': '11-50', '51-200': '51-200', '201-1000': '201-1000', '1000+': '1000+' };\n  const compact = s.replace(/\\s|employees?|people|staff/g, '');\n  if (canonical[compact]) return canonical[compact];\n  const nums = [...s.matchAll(/(\\d+(?:\\.\\d+)?)\\s*(k)?/g)].map((m) => parseFloat(m[1]) * (m[2] ? 1000 : 1));\n  if (!nums.length) return '';\n  const n = nums.length >= 2 ? (nums[0] + nums[1]) / 2 : nums[0];\n  if (n <= 10) return '1-10';\n  if (n <= 50) return '11-50';\n  if (n <= 200) return '51-200';\n  if (n <= 1000) return '201-1000';\n  return '1000+';\n}\n\n// Turn \"$20,000\", \"25k\", \"10000-20000\" (midpoint) or \"under 5k\" into a standard budget band.\nfunction budgetBand(v) {\n  const s = clean(v).toLowerCase();\n  if (!s) return { band: '', usd: null };\n  const canonical = {\n    'under$5k': 'Under $5k', '$5k-$15k': '$5k-$15k', '$15k-$50k': '$15k-$50k', '$50k+': '$50k+',\n  };\n  const key = s.replace(/\\s+/g, '');\n  if (canonical[key]) return { band: canonical[key], usd: null };\n  if (/^(not sure( yet)?|unsure|unknown|tbd|n\\/a|na|\\?|don't know|dont know)$/.test(s)) return { band: 'Not sure', usd: null };\n  const nums = [...s.replace(/[$,\\s]/g, '').matchAll(/(\\d+(?:\\.\\d+)?)(k|m)?/g)]\n    .map((m) => parseFloat(m[1]) * (m[2] === 'k' ? 1e3 : m[2] === 'm' ? 1e6 : 1));\n  if (!nums.length) return { band: '', usd: null };\n  let usd = nums.length >= 2 ? (nums[0] + nums[1]) / 2 : nums[0];\n  if (/under|less than|below|</.test(s)) usd -= 1;\n  const band = usd < 5000 ? 'Under $5k' : usd < 15000 ? '$5k-$15k' : usd < 50000 ? '$15k-$50k' : '$50k+';\n  return { band, usd: Math.round(usd) };\n}\n\nfunction timelineNorm(v) {\n  const s = clean(v).toLowerCase();\n  if (!s) return '';\n  if (/asap|immediate|urgent|right away|this week|this month|^now$/.test(s)) return 'ASAP';\n  if (/1\\s*(-|to)\\s*3|this quarter|next month|within 3 months|1-3/.test(s)) return '1-3 months';\n  if (/3\\s*(-|to)\\s*6|next quarter|6 months|3-6/.test(s)) return '3-6 months';\n  if (/research|exploring|just looking|not sure|no rush|next year|6\\+|later/.test(s)) return 'Just researching';\n  return clean(v);\n}\n\nfunction serviceNorm(v) {\n  const s = clean(v).toLowerCase();\n  if (!s) return '';\n  if (/cyber|security|phishing|ransomware|compliance/.test(s)) return 'Cybersecurity';\n  if (/microsoft 365|m365|office 365|o365/.test(s)) return 'Microsoft 365 Setup';\n  if (/cloud|azure|aws|migration/.test(s)) return 'Cloud Migration';\n  if (/managed|help ?desk|support|msp/.test(s)) return 'Managed IT Support';\n  if (/consult|strategy|assessment|audit|advice/.test(s)) return 'IT Consulting';\n  return 'Other';\n}\n\n// Text that looks like code. It is stored as plain text either way (every query is parameterized),\n// but HubSpot's firewall answers 403 to records containing it, so such leads skip the CRM upsert.\nconst CODE_PATTERNS = [\n  ['HTML', /<\\/?[a-z][a-z0-9-]*(\\s[^<>]*)?\\/?>/i],\n  ['HTML', /javascript\\s*:/i],\n  ['SQL', /\\b(drop|truncate|alter)\\s+table\\b/i],\n  ['SQL', /\\bunion\\s+(all\\s+)?select\\b/i],\n  ['SQL', /'\\s*(or|and)\\s+'?\\w+'?\\s*=\\s*'?\\w+/i],\n  ['SQL', /;\\s*--/],\n];\nfunction looksLikeCode(values) {\n  const kinds = new Set();\n  for (const v of values) for (const [kind, re] of CODE_PATTERNS) if (re.test(String(v ?? ''))) kinds.add(kind);\n  return [...kinds].join(' and ');\n}\n\nfunction uuidv4() {\n  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {\n    const r = (Math.random() * 16) | 0;\n    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);\n  });\n}\n\nreturn $input.all().map((item) => {\n  const d = item.json;\n  const source = clean(d.source).toLowerCase() || 'webhook';\n  const warnings = [];\n  const errors = [];\n\n  let firstName = nameCase(d.first_name);\n  let lastName = nameCase(d.last_name);\n  if (!firstName && clean(d.name)) {\n    const parts = nameCase(d.name).split(' ');\n    firstName = parts.shift();\n    lastName = lastName || parts.join(' ');\n  }\n\n  const { email, valid: emailValid } = normEmail(d.email);\n  const emailDomain = emailValid ? email.split('@')[1] : '';\n  const emailType = !emailValid ? '' : FREE_EMAIL_DOMAINS.has(emailDomain) ? 'free' : 'business';\n  if (emailType === 'free') warnings.push(`Free email domain (${emailDomain})`);\n\n  const stateResult = normState(d.state);\n  const country = normCountry(d.country, stateResult.state);\n  if (stateResult.warning && (country === 'US' || country === '')) warnings.push(stateResult.warning);\n  const phoneResult = normPhone(d.phone, country);\n  if (phoneResult.warning) warnings.push(phoneResult.warning);\n  const budget = budgetBand(d.budget);\n  const company = clean(d.company);\n  const serviceInterest = serviceNorm(d.service_interest);\n\n  const codeLike = looksLikeCode([firstName, lastName, company, d.job_title, d.message]);\n  if (codeLike) warnings.push(`Looks like code (${codeLike}), kept out of HubSpot for review`);\n\n  if (!firstName) errors.push('Missing first name');\n  if (!email) errors.push('Missing email');\n  else if (!emailValid) errors.push(`Invalid email format: ${clean(d.email)}`);\n  if (!company) errors.push('Missing company');\n  if (!serviceInterest) errors.push('Missing service interest');\n\n  const lead = {\n    lead_id: uuidv4(),\n    received_at: new Date().toISOString(),\n    source,\n    source_label: SOURCE_LABELS[source] || source,\n    source_event_id: clean(d.source_event_id),\n    submitted_at: clean(d.submitted_at),\n    first_name: firstName,\n    last_name: lastName,\n    full_name: [firstName, lastName].filter(Boolean).join(' '),\n    email,\n    email_domain: emailDomain,\n    email_type: emailType,\n    company,\n    company_domain: emailType === 'business' ? emailDomain : '',\n    job_title: clean(d.job_title),\n    phone: phoneResult.phone,\n    phone_input: clean(d.phone),\n    state: stateResult.state,\n    state_input: clean(d.state),\n    country,\n    company_size_band: sizeBand(d.company_size),\n    company_size_input: clean(d.company_size),\n    budget_band: budget.band,\n    budget_usd: budget.usd,\n    budget_input: clean(d.budget),\n    service_interest: serviceInterest,\n    timeline: timelineNorm(d.timeline),\n    message: clean(d.message).slice(0, 2000),\n    sheet_row_number: d.sheet_row_number ? Number(d.sheet_row_number) : null,\n    validation_errors: errors,\n    warnings,\n    crm_hold: !!codeLike,\n    is_valid: errors.length === 0,\n  };\n\n  // Idempotency material: the source's own event ID when it has one,\n  // otherwise email + the source's submission timestamp, otherwise the content itself.\n  // Never our receive time, so a retried delivery produces the same key.\n  if (lead.source_event_id) {\n    lead.idem_material = `${source}|event|${lead.source_event_id}`;\n  } else if (lead.submitted_at && (email || company)) {\n    lead.idem_material = `${source}|${email || company.toLowerCase()}|${lead.submitted_at}`;\n  } else {\n    const content = [email, lead.phone, company.toLowerCase(), firstName.toLowerCase(), lastName.toLowerCase(),\n      lead.service_interest, lead.budget_band, lead.company_size_band, lead.timeline, lead.message];\n    lead.idem_material = `${source}|content|${JSON.stringify(content)}`;\n  }\n\n  // Compact copy for the audit log (used by the duplicate and rejection paths).\n  lead.log_details = {\n    lead: {\n      first_name: lead.first_name, last_name: lead.last_name, email: lead.email, email_type: lead.email_type,\n      phone: lead.phone, phone_input: lead.phone_input, company: lead.company, job_title: lead.job_title,\n      state: lead.state, country: lead.country, company_size_band: lead.company_size_band,\n      budget_band: lead.budget_band, service_interest: lead.service_interest, timeline: lead.timeline,\n      submitted_at: lead.submitted_at,\n    },\n    validation_errors: errors,\n    warnings,\n    sheet_row_number: lead.sheet_row_number,\n    idem_material: lead.idem_material,\n  };\n\n  return { json: lead };\n});\n"
+      },
+      "id": "8731c986-6835-5f01-83c3-3ccddf20b7e3",
+      "name": "Normalize & Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "action": "hash",
+        "type": "SHA256",
+        "value": "={{ $json.idem_material }}",
+        "dataPropertyName": "idem_key",
+        "encoding": "hex"
+      },
+      "id": "4136deb4-1824-5886-9cb1-6e01ba6b3bee",
+      "name": "Hash Idempotency Key",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 2,
+      "position": [
+        660,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Claim the idempotency key. Only one execution can win this insert.\n-- A repeat delivery hits the unique key and gets no row back, so it is treated as a duplicate.\n-- Exceptions that may claim again: a retry of this same lead (same lead_id),\n-- or a key stuck in 'processing' for 15+ minutes after a crash.\nINSERT INTO processed_events (idem_key, source, source_event_id, lead_id)\nVALUES ($1, $2, NULLIF($3, ''), $4::uuid)\nON CONFLICT (idem_key) DO UPDATE\n   SET attempts   = processed_events.attempts + 1,\n       lead_id    = EXCLUDED.lead_id,\n       status     = 'processing',\n       updated_at = now()\n WHERE processed_events.lead_id = EXCLUDED.lead_id\n    OR (processed_events.status = 'processing'\n        AND processed_events.updated_at < now() - interval '15 minutes')\nRETURNING true AS claimed, attempts AS claim_attempts;",
+        "options": {
+          "queryReplacement": "={{ [ $json.idem_key, $json.source, $json.source_event_id, $json.lead_id ] }}"
+        }
+      },
+      "id": "428ef83f-eb44-5ff1-9a67-d4f60f3294a2",
+      "name": "Claim Idempotency Key",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        880,
+        560
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "lrPostgresCred01",
+          "name": "Lead Router - Postgres"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "ed51a6eb-0ad3-5939-98b1-6d9fed453b19",
+      "name": "Merge Claim Result",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1100,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bc74c25a-b0f4-551a-a6f4-84793f2a5213",
+              "leftValue": "={{ $json.claimed === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "aab20fbd-8c93-52bb-bee2-456d73c0169a",
+      "name": "Is New Event?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Record the dropped duplicate so the audit trail shows every delivery.\nINSERT INTO lead_log (event, lead_id, idem_key, source, source_event_id, email, company,\n                      reason, details, workflow_name, execution_id)\nVALUES ('duplicate_dropped', $1::uuid, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''),\n        'Same event already received; dropped by the idempotency check',\n        $7::jsonb, $8, $9)\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{ [ $json.lead_id, $json.idem_key, $json.source, $json.source_event_id, $json.email, $json.company, JSON.stringify($json.log_details), $workflow.name, String($execution.id) ] }}"
+        }
+      },
+      "id": "546b4279-7b3b-58dd-a5a1-4f50ff6de75f",
+      "name": "Log Duplicate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1320,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "lrPostgresCred01",
+          "name": "Lead Router - Postgres"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "94e0f5b7-f5dd-54ba-a8a3-3211b7d7322c",
+              "leftValue": "={{ $json.is_valid === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e808ae91-02ad-57bd-a43c-4c2c0900247e",
+      "name": "Is Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1580,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Mark the event as rejected and log why, so nothing is dropped silently.\nWITH mark_rejected AS (\n  UPDATE processed_events SET status = 'rejected', updated_at = now() WHERE idem_key = $2\n)\nINSERT INTO lead_log (event, lead_id, idem_key, source, source_event_id, email, company,\n                      reason, details, workflow_name, execution_id)\nVALUES ('rejected', $1::uuid, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''),\n        $7, $8::jsonb, $9, $10)\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{ [ $json.lead_id, $json.idem_key, $json.source, $json.source_event_id, $json.email, $json.company, $json.validation_errors.join('; '), JSON.stringify($json.log_details), $workflow.name, String($execution.id) ] }}"
+        }
+      },
+      "id": "c2d092d9-bef2-59b2-ab2a-546bcde1f4f0",
+      "name": "Log Rejection",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1800,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "lrPostgresCred01",
+          "name": "Lead Router - Postgres"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.config.slack_alerts_channel }}",
+          "mode": "name"
+        },
+        "text": "=:warning: *Lead needs review*: it failed validation and was not routed.\n*Problems:* {{ $json.validation_errors.join('; ') }}\n*Source:* {{ $json.source_label }}{{ $json.sheet_row_number ? ' (intake row ' + $json.sheet_row_number + ')' : '' }}\n*Name:* {{ $json.full_name || '(blank)' }} | *Email:* {{ $json.email || '(blank)' }} | *Company:* {{ $json.company || '(blank)' }}\n*Phone:* {{ $json.phone || $json.phone_input || '(blank)' }} | *Service:* {{ $json.service_interest || '(blank)' }}\nLead ID: {{ $json.lead_id }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "unfurl_links": false,
+          "mrkdwn": true
+        }
+      },
+      "id": "c3578d3b-697c-5709-8b8e-0326d71d19d5",
+      "name": "Alert: Lead Needs Review",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1800,
+        560
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "lrSlackCred00001",
+          "name": "Lead Router - Slack"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.config.hubspot_base_url }}/crm/v3/objects/contacts/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: $json.email }] }], properties: ['email', 'firstname', 'lastname', 'hubspot_owner_id', 'lr_assigned_rep_id', 'lr_assigned_rep'], limit: 1 }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "cf7ff766-5e4b-5d98-9002-1a1031696fb4",
+      "name": "Find Contact in HubSpot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2060,
+        400
+      ],
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "lrHubspotCred001",
+          "name": "Lead Router - HubSpot"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Who handled this email last? The router's own log is instant and always consistent.\nSELECT rep_id AS previous_rep_id, rep_name AS previous_rep_name, logged_at AS previously_routed_at\nFROM lead_log\nWHERE email = $1 AND event = 'routed' AND rep_id IS NOT NULL\nORDER BY logged_at DESC\nLIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ [ $('Merge Claim Result').first().json.email ] }}"
+        }
+      },
+      "id": "db1c85ba-92e5-5803-af4e-e9dcd4b15cc6",
+      "name": "Find Previous Assignment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2280,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "lrPostgresCred01",
+          "name": "Lead Router - Postgres"
+        }
+      },
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $('Config').first().json.config.sheet_id }}/values:batchGet?ranges=scoring_rules&ranges=territories&ranges=reps&majorDimension=ROWS",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "cb742521-eb08-55a5-928b-68a34e0adeea",
+      "name": "Read Config Tabs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2560,
+        400
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "lrGoogleSACred01",
+          "name": "Lead Router - Google Service Account"
+        }
+      },
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Config Tabs\n// \"Read Config Tabs\" fetches scoring_rules, territories and reps in ONE Sheets API call (values:batchGet).\n// Google allows 60 reads per minute per service account, so one call per lead instead of three\n// keeps a burst of leads under the limit. This node turns each tab into row objects keyed by its header row.\n\nconst ranges = $input.first().json.valueRanges || [];\n\nfunction tab(name) {\n  const found = ranges.find((r) => String(r.range || '').replace(/'/g, '').split('!')[0] === name);\n  if (!found) throw new Error(`Could not read the \"${name}\" tab of the config sheet. Check that the tab exists and has not been renamed.`);\n  const [header = [], ...rows] = found.values || [];\n  const keys = header.map((h) => String(h ?? '').trim());\n  return rows\n    .filter((row) => row.some((v) => String(v ?? '').trim() !== ''))\n    .map((row, i) => {\n      const obj = { row_number: i + 2 };\n      keys.forEach((k, j) => { if (k) obj[k] = row[j] ?? ''; });\n      return obj;\n    });\n}\n\nreturn [{ json: { scoring_rules: tab('scoring_rules'), territories: tab('territories'), reps: tab('reps') } }];\n"
+      },
+      "id": "4c2ec14a-ca9f-5e4a-a3ca-5957cc9e32ad",
+      "name": "Parse Config Tabs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Score & Choose Pool\n// 1) Scores the lead with the rules from the scoring_rules tab.\n// 2) Decides the route: returning contact, hot lead, territory, or manager fallback.\n// 3) Lists the available reps who can take it; the next node picks one round-robin.\n\nconst cfg = $('Config').first().json.config;\nconst lead = $('Merge Claim Result').first().json;\nconst hubspot = $('Find Contact in HubSpot').first().json || {};\nconst previous = $('Find Previous Assignment').first().json || {};\n\nconst truthy = (v) => ['true', 'yes', 'y', '1', 'x'].includes(String(v ?? '').trim().toLowerCase());\nconst text = (v) => String(v ?? '').trim();\nconst lower = (v) => text(v).toLowerCase();\nconst escapeRe = (s) => s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n\n// ---------- 1. Scoring ----------\nconst tabs = $('Parse Config Tabs').first().json;\nconst rules = (tabs.scoring_rules || []).filter((r) => text(r.rule_id) && truthy(r.active));\n\nfunction ruleMatches(rule, value) {\n  const op = lower(rule.operator);\n  const v = lower(value);\n  const list = text(rule.value).split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);\n  switch (op) {\n    case 'equals': return v !== '' && v === lower(rule.value);\n    case 'not_equals': return v !== lower(rule.value);\n    case 'in': return v !== '' && list.includes(v);\n    case 'not_in': return !list.includes(v);\n    case 'contains_any': return list.some((w) => new RegExp(`\\\\b${escapeRe(w)}\\\\b`, 'i').test(text(value)));\n    case 'gte': return value !== '' && value !== null && Number(value) >= Number(rule.value);\n    case 'lte': return value !== '' && value !== null && Number(value) <= Number(rule.value);\n    case 'not_empty': return v !== '';\n    case 'is_empty': return v === '';\n    default: return false;\n  }\n}\n\nlet score = 0;\nconst breakdown = [];\nfor (const rule of rules) {\n  if (ruleMatches(rule, lead[text(rule.field)])) {\n    const points = Number(rule.points) || 0;\n    score += points;\n    breakdown.push({ rule_id: text(rule.rule_id), label: text(rule.label) || text(rule.rule_id), points });\n  }\n}\nconst hot = Number(cfg.hot_threshold);\nconst warm = Number(cfg.warm_threshold);\nconst priority = score >= hot ? 'Hot' : score >= warm ? 'Warm' : 'Cold';\n\n// ---------- 2. Reps and territories ----------\nconst reps = (tabs.reps || []).filter((r) => text(r.rep_id)).map((r) => ({\n  rep_id: text(r.rep_id),\n  name: text(r.name),\n  email: text(r.email),\n  pool: lower(r.pool),\n  available: truthy(r.available),\n  slack_member_id: text(r.slack_member_id),\n  hubspot_owner_id: text(r.hubspot_owner_id),\n}));\nconst repDirectory = Object.fromEntries(reps.map((r) => [r.rep_id, r]));\nconst territories = Object.fromEntries(\n  (tabs.territories || []).filter((t) => text(t.state_code))\n    .map((t) => [text(t.state_code).toUpperCase(), lower(t.pool)]),\n);\nconst availableIn = (pool) => reps.filter((r) => r.pool === pool && r.available).map((r) => r.rep_id);\nconst fallbackPool = lower(cfg.fallback_pool) || 'manager';\n\n// ---------- 3. Routing decision ----------\nconst existingContact = (hubspot.results || [])[0] || null;\nconst props = existingContact?.properties || {};\nconst ownerMatch = reps.find((r) => r.hubspot_owner_id && r.hubspot_owner_id === text(props.hubspot_owner_id));\nconst existingRepId = text(previous.previous_rep_id) || text(props.lr_assigned_rep_id) || ownerMatch?.rep_id || '';\n\nlet routeType;\nlet pool;\nlet reason;\nlet candidates = [];\nlet assignedRepId = '';\nconst notes = [];\n\nconst existingRep = repDirectory[existingRepId];\nif (existingRep && existingRep.available) {\n  routeType = 'returning';\n  pool = existingRep.pool;\n  assignedRepId = existingRep.rep_id;\n  reason = `Returning contact, kept with ${existingRep.name}`;\n} else {\n  if (existingRepId) notes.push(`previous rep ${existingRep ? existingRep.name : existingRepId} is unavailable`);\n  if (score >= hot) {\n    routeType = 'score';\n    pool = 'enterprise';\n    reason = `Hot lead (score ${score}), sent to the Enterprise pool`;\n  } else if (lead.country === 'US' && territories[lead.state]) {\n    routeType = 'territory';\n    pool = territories[lead.state];\n    reason = `Territory ${lead.state}, sent to the ${pool} pool`;\n  } else {\n    routeType = 'no_territory';\n    pool = fallbackPool;\n    reason = `No territory match (country: ${lead.country || 'blank'}, state: ${lead.state || 'blank'}), sent to the ${fallbackPool} pool`;\n  }\n  candidates = availableIn(pool);\n  if (!candidates.length && pool !== fallbackPool) {\n    notes.push(`no available reps in the ${pool} pool`);\n    routeType = 'fallback';\n    pool = fallbackPool;\n    candidates = availableIn(fallbackPool);\n  }\n  if (!candidates.length) {\n    routeType = 'unassigned';\n    notes.push(`no available reps in the ${fallbackPool} pool either`);\n  }\n}\nif (notes.length) reason += ` (${notes.join('; ')})`;\n\nreturn [{\n  json: {\n    ...lead,\n    score,\n    score_breakdown: breakdown,\n    score_summary: breakdown.map((b) => `${b.label} +${b.points}`).join(', ') || 'No scoring rules matched',\n    priority,\n    route_type: routeType,\n    pool,\n    routing_reason: reason,\n    candidate_rep_ids: candidates,\n    needs_rotation: candidates.length > 0 && routeType !== 'returning',\n    assigned_rep_id: assignedRepId,\n    existing_contact_id: existingContact ? text(existingContact.id) : '',\n    rep_directory: repDirectory,\n  },\n}];\n"
+      },
+      "id": "75b4c0ad-37c7-563a-885e-f23fae795865",
+      "name": "Score & Choose Pool",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3160,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bc58ab50-7f10-582c-b236-3a2367b28f76",
+              "leftValue": "={{ $json.needs_rotation === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1eeda13-6d53-5677-9497-8cb81cf68d51",
+      "name": "Needs Round-Robin?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3420,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- 1) Make sure every candidate rep has a rotation row.\nINSERT INTO rep_rotation (rep_id)\nSELECT jsonb_array_elements_text($1::jsonb)\nON CONFLICT (rep_id) DO NOTHING;\n\n-- 2) Give the lead to the candidate who was assigned least recently.\n-- FOR UPDATE SKIP LOCKED keeps two simultaneous leads from landing on the same rep.\nUPDATE rep_rotation\n   SET last_assigned_at = clock_timestamp(),\n       assigned_count   = assigned_count + 1\n WHERE rep_id = (\n   SELECT rep_id\n     FROM rep_rotation\n    WHERE rep_id IN (SELECT jsonb_array_elements_text($1::jsonb))\n    ORDER BY last_assigned_at NULLS FIRST, rep_id\n    LIMIT 1\n    FOR UPDATE SKIP LOCKED\n )\nRETURNING rep_id AS picked_rep_id, assigned_count;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.candidate_rep_ids) ] }}"
+        }
+      },
+      "id": "453129ed-8086-5131-ba26-09236a3740a4",
+      "name": "Pick Next Rep (Round-Robin)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3640,
+        240
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "lrPostgresCred01",
+          "name": "Lead Router - Postgres"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Finalize Assignment\n// Combines the routing decision with the rep picked by the round-robin query,\n// then builds the HubSpot contact properties. Blank values are left out on purpose\n// so a sparse resubmission can never wipe data already in the CRM.\n\nconst decision = $('Score & Choose Pool').first().json;\nconst input = $input.first().json || {};\n\nlet routeType = decision.route_type;\nlet reason = decision.routing_reason;\nlet repId = decision.assigned_rep_id;\n\nif (decision.needs_rotation) {\n  repId = String(input.picked_rep_id ?? '');\n  if (!repId) {\n    routeType = 'unassigned';\n    reason += ' (round-robin found no rep to lock, left unassigned)';\n  }\n}\n\nconst rep = repId ? decision.rep_directory[repId] || null : null;\nif (repId && !rep) {\n  routeType = 'unassigned';\n  reason += ` (rep ${repId} not found in the reps tab)`;\n}\n\nconst hubspotProperties = {\n  email: decision.email,\n  firstname: decision.first_name,\n  lastname: decision.last_name,\n  phone: decision.phone || decision.phone_input,\n  company: decision.company,\n  jobtitle: decision.job_title,\n  state: decision.state,\n  country: decision.country,\n  lr_lead_score: String(decision.score),\n  lr_priority: decision.priority,\n  lr_assigned_rep: rep ? rep.name : 'Unassigned',\n  lr_assigned_rep_id: rep ? rep.rep_id : '',\n  lr_routing_reason: reason,\n  lr_source: decision.source_label,\n  lr_service_interest: decision.service_interest,\n  lr_company_size: decision.company_size_band,\n  lr_budget: decision.budget_band,\n  lr_timeline: decision.timeline,\n  lr_last_message: decision.message,\n  hubspot_owner_id: rep ? rep.hubspot_owner_id : '',\n};\nfor (const [key, value] of Object.entries(hubspotProperties)) {\n  if (value === null || value === undefined || String(value).trim() === '') delete hubspotProperties[key];\n}\n\nconst { rep_directory, ...rest } = decision;\n\nreturn [{\n  json: {\n    ...rest,\n    route_type: routeType,\n    routing_reason: reason,\n    assigned_rep_id: rep ? rep.rep_id : '',\n    assigned_rep: rep,\n    event: rep ? 'routed' : 'unassigned',\n    hubspot_properties: hubspotProperties,\n  },\n}];\n"
+      },
+      "id": "bdf6e274-2682-5bc6-825d-abb0a7a98777",
+      "name": "Finalize Assignment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3860,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5a48bfd5-34c2-5658-ab8b-70aedc3b41a9",
+              "leftValue": "={{ $json.crm_hold !== true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4c83019d-6920-592c-8ff5-ceac1ea1dbe5",
+      "name": "Send to HubSpot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4120,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.config.hubspot_base_url }}/crm/v3/objects/contacts/batch/upsert",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ inputs: [{ idProperty: 'email', id: $json.email, properties: $json.hubspot_properties }] }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "46834331-b032-5b93-97e9-68223d61cf2d",
+      "name": "Upsert Contact in HubSpot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4340,
+        400
+      ],
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "lrHubspotCred001",
+          "name": "Lead Router - HubSpot"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Notifications\n// Reads the HubSpot upsert result, then prepares the Slack message, the hot-lead email\n// and the audit log record. Keeping all wording here makes it easy to change in one place.\n\nconst cfg = $('Config').first().json.config;\nconst lead = $('Finalize Assignment').first().json;\nconst upsert = $input.first().json || {};\nconst contact = (upsert.results || [])[0] || {};\n\nconst crmContactId = String(contact.id ?? '');\nconst crmIsNew = contact.new === true;\nconst portalId = String(cfg.hubspot_portal_id ?? '').trim();\nconst crmUrl = crmContactId\n  ? (portalId ? `https://app.hubspot.com/contacts/${portalId}/record/0-1/${crmContactId}` : String(contact.url ?? ''))\n  : '';\n\nconst rep = lead.assigned_rep;\nconst icon = { Hot: ':fire:', Warm: ':large_orange_circle:', Cold: ':white_circle:' }[lead.priority] || ':bust_in_silhouette:';\nconst mention = rep ? (rep.slack_member_id ? `<@${rep.slack_member_id}>` : `*${rep.name}*`) : '*nobody (no rep available)*';\nconst titleLine = [lead.job_title, lead.company].filter(Boolean).join(' at ');\nconst sizeText = lead.company_size_band ? ` (${lead.company_size_band} employees)` : '';\n\nconst slackLines = [\n  `${icon} *${lead.priority} lead* assigned to ${mention}${lead.route_type === 'returning' ? ' (returning contact)' : ''}`,\n  `*${lead.full_name}*${titleLine ? `, ${titleLine}` : ''}${sizeText}`,\n  `${lead.email}${lead.phone ? ` | ${lead.phone}` : ''}${lead.state ? ` | ${lead.state}` : lead.country ? ` | ${lead.country}` : ''}`,\n  `*Service:* ${lead.service_interest || 'n/a'} | *Budget:* ${lead.budget_band || 'n/a'} | *Timeline:* ${lead.timeline || 'n/a'}`,\n  `*Score:* ${lead.score} (${lead.score_summary})`,\n  `*Routing:* ${lead.routing_reason}`,\n  `*Source:* ${lead.source_label}${crmUrl ? ` | <${crmUrl}|Open in HubSpot>` : ''}`,\n];\nif (lead.message) slackLines.push(`> ${lead.message.slice(0, 300)}`);\nif (!rep) slackLines.unshift(':rotating_light: *Unassigned lead, please assign it manually in HubSpot*');\nif (lead.crm_hold) slackLines.push(':warning: *Not added to HubSpot:* this lead contains text that looks like code (HTML or SQL), which HubSpot blocks. Check it before adding it by hand.');\n\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst row = (k, v) => `<tr><td style=\"padding:4px 12px 4px 0;color:#555\">${k}</td><td style=\"padding:4px 0\">${esc(v) || 'n/a'}</td></tr>`;\nconst emailHtml = `\n<p>Hi ${esc(rep ? rep.name.split(' ')[0] : 'team')},</p>\n<p>A <strong>hot lead</strong> was just assigned to you. Please reach out today.</p>\n<table style=\"border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px\">\n${row('Name', lead.full_name)}${row('Title', lead.job_title)}${row('Company', lead.company)}\n${row('Email', lead.email)}${row('Phone', lead.phone || lead.phone_input)}${row('Location', [lead.state, lead.country].filter(Boolean).join(', '))}\n${row('Company size', lead.company_size_band)}${row('Budget', lead.budget_band)}${row('Service', lead.service_interest)}\n${row('Timeline', lead.timeline)}${row('Score', `${lead.score} (${lead.score_summary})`)}${row('Message', lead.message)}\n</table>\n${crmUrl ? `<p><a href=\"${crmUrl}\">Open the contact in HubSpot</a></p>` : ''}\n<p style=\"color:#888;font-size:12px\">Sent by the lead router.</p>`;\n\nconst logRecord = {\n  event: lead.event,\n  lead_id: lead.lead_id,\n  idem_key: lead.idem_key,\n  source: lead.source,\n  source_event_id: lead.source_event_id || null,\n  email: lead.email,\n  company: lead.company,\n  score: lead.score,\n  priority: lead.priority,\n  pool: lead.pool,\n  route_type: lead.route_type,\n  rep_id: rep ? rep.rep_id : null,\n  rep_name: rep ? rep.name : null,\n  reason: lead.routing_reason,\n  crm_contact_id: crmContactId || null,\n  crm_is_new: crmContactId ? crmIsNew : null,\n  details: {\n    lead: {\n      first_name: lead.first_name, last_name: lead.last_name, email: lead.email, email_type: lead.email_type,\n      phone: lead.phone, phone_input: lead.phone_input, company: lead.company, job_title: lead.job_title,\n      state: lead.state, country: lead.country, company_size_band: lead.company_size_band,\n      budget_band: lead.budget_band, service_interest: lead.service_interest, timeline: lead.timeline,\n      submitted_at: lead.submitted_at,\n    },\n    score_breakdown: lead.score_breakdown,\n    warnings: lead.warnings,\n    claim_attempts: lead.claim_attempts,\n    crm_url: crmUrl,\n    sheet_row_number: lead.sheet_row_number,\n  },\n  workflow_name: $workflow.name,\n  execution_id: String($execution.id),\n};\n\nreturn [{\n  json: {\n    is_hot: lead.priority === 'Hot' && !!rep && !!rep.email,\n    slack_channel: rep ? cfg.slack_leads_channel : cfg.slack_alerts_channel,\n    slack_text: slackLines.join('\\n'),\n    email_to: rep ? rep.email : '',\n    email_subject: `Hot lead: ${lead.full_name}, ${lead.company} (score ${lead.score})`,\n    email_html: emailHtml,\n    crm_contact_id: crmContactId,\n    crm_is_new: crmIsNew,\n    crm_url: crmUrl,\n    log_record: logRecord,\n  },\n}];\n"
+      },
+      "id": "7266354d-8a4f-50c8-a946-23122cd68f55",
+      "name": "Build Notifications",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $json.slack_channel }}",
+          "mode": "name"
+        },
+        "text": "={{ $json.slack_text }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "unfurl_links": false,
+          "mrkdwn": true
+        }
+      },
+      "id": "6c240a64-23a1-501d-84b4-a81732a9de0f",
+      "name": "Notify in Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        4780,
+        400
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "lrSlackCred00001",
+          "name": "Lead Router - Slack"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "127dca0e-fb3a-560a-ac51-804d40b513e2",
+              "leftValue": "={{ $('Build Notifications').first().json.is_hot === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d63dd9ef-eeaa-580e-b9b3-4e60f302419b",
+      "name": "Is Hot Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5000,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $('Config').first().json.config.from_email }}",
+        "toEmail": "={{ $('Build Notifications').first().json.email_to }}",
+        "subject": "={{ $('Build Notifications').first().json.email_subject }}",
+        "emailFormat": "html",
+        "html": "={{ $('Build Notifications').first().json.email_html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "cd3f3bd4-1d74-5354-baeb-108adff8b9b3",
+      "name": "Email Hot Lead to Rep",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        5220,
+        240
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "lrSmtpCred000001",
+          "name": "Lead Router - SMTP"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Mark the event done and write the audit record in one statement.\n-- jsonb_populate_record maps the JSON keys built in \"Build Notifications\" onto lead_log columns.\nWITH mark_done AS (\n  UPDATE processed_events SET status = 'done', updated_at = now()\n   WHERE idem_key = ($1::jsonb ->> 'idem_key')\n)\nINSERT INTO lead_log (event, lead_id, idem_key, source, source_event_id, email, company, score,\n                      priority, pool, route_type, rep_id, rep_name, reason, crm_contact_id,\n                      crm_is_new, details, workflow_name, execution_id)\nSELECT event, lead_id, idem_key, source, source_event_id, email, company, score,\n       priority, pool, route_type, rep_id, rep_name, reason, crm_contact_id,\n       crm_is_new, details, workflow_name, execution_id\nFROM jsonb_populate_record(NULL::lead_log, $1::jsonb)\nRETURNING *;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($('Build Notifications').first().json.log_record) ] }}"
+        }
+      },
+      "id": "60d22c23-5678-5f37-899c-94c4bd381650",
+      "name": "Log Routed Lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        5480,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "lrPostgresCred01",
+          "name": "Lead Router - Postgres"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4cea277f-1492-55e4-8ed4-cba12a258129",
+              "leftValue": "={{ $json.source === 'sheet' && !!($json.details || {}).sheet_row_number }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bba44655-d9f9-5311-8b3d-58b67842d49c",
+      "name": "From Google Sheet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5700,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "intake",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.details.sheet_row_number }}",
+            "status": "={{ { routed: 'routed', unassigned: 'unassigned', rejected: 'rejected', duplicate_dropped: 'duplicate' }[$json.event] || $json.event }}",
+            "routed_to": "={{ $json.event === 'routed' ? $json.rep_name + ' (' + $json.priority + ', score ' + $json.score + ')' : $json.reason }}",
+            "processed_at": "={{ $now.setZone('America/New_York').toFormat('yyyy-MM-dd HH:mm:ss') }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "routed_to",
+              "displayName": "routed_to",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processed_at",
+              "displayName": "processed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "1a1532ec-a6eb-5ac9-a9c3-7485dbfb7d57",
+      "name": "Update Intake Row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5920,
+        700
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "lrGoogleSACred01",
+          "name": "Lead Router - Google Service Account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "content": "## 02 - Process Lead\nCalled once per lead by **01 - Lead Intake**. Every lead ends in exactly one audit row: **routed**, **unassigned**, **rejected** or **duplicate_dropped**. Errors go to **03 - Error Handler**; external calls are tried up to 3 times.",
+        "height": 180,
+        "width": 760,
+        "color": 5
+      },
+      "id": "2e4eca30-a646-50e1-8dc8-4a5bb49ef9bb",
+      "name": "Note: Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 1. Clean and de-duplicate\nNormalize every field, hash an idempotency key, then claim it in Postgres. A repeat delivery loses the claim and is logged as a duplicate.",
+        "height": 740,
+        "width": 1060,
+        "color": 7
+      },
+      "id": "1637f9e3-b1c4-529e-a123-02ca3e0cdd28",
+      "name": "Note: Clean and dedupe",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        400,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 2. Validate\nInvalid leads are logged and posted to #lead-alerts for review, never dropped.",
+        "height": 740,
+        "width": 420,
+        "color": 3
+      },
+      "id": "7c6cc386-2ca3-5238-8e14-76028491deff",
+      "name": "Note: Validate",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 3. Look up and score\nCheck HubSpot and the router's own log for an existing owner, then score the lead with the rules in the config sheet. All three config tabs come back in one Sheets API call, which keeps bursts under Google's limit of 60 reads per minute.",
+        "height": 740,
+        "width": 1260,
+        "color": 4
+      },
+      "id": "04623d56-7d1d-5e23-a962-0633eccee26a",
+      "name": "Note: Look up and score",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2020,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 4. Route\nReturning contact keeps its rep. Otherwise Hot goes to Enterprise, then territory, then the manager. Round-robin state lives in Postgres.",
+        "height": 740,
+        "width": 600,
+        "color": 6
+      },
+      "id": "aabbe0e1-0447-5aae-a4e8-a3befc983fd3",
+      "name": "Note: Route",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3380,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 5. CRM and notify\nUpsert by email (one contact per person), post to Slack, and email the rep when the lead is Hot. A lead with text that looks like code (HTML or SQL) skips HubSpot, whose firewall blocks it, and the Slack message says so.",
+        "height": 740,
+        "width": 1260,
+        "color": 2
+      },
+      "id": "a17580e4-e568-52cb-b0bb-7dd992879ff8",
+      "name": "Note: CRM and notify",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4080,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 6. Log\nMark the event done, write the audit row, and update the intake row when the lead came from the sheet.",
+        "height": 740,
+        "width": 620,
+        "color": 7
+      },
+      "id": "705147b3-554c-5e29-ab52-010ff86425d1",
+      "name": "Note: Log",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5440,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "When Called by Lead Intake": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Normalize & Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize & Validate": {
+      "main": [
+        [
+          {
+            "node": "Hash Idempotency Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash Idempotency Key": {
+      "main": [
+        [
+          {
+            "node": "Merge Claim Result",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Claim Idempotency Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Idempotency Key": {
+      "main": [
+        [
+          {
+            "node": "Merge Claim Result",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Claim Result": {
+      "main": [
+        [
+          {
+            "node": "Is New Event?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New Event?": {
+      "main": [
+        [
+          {
+            "node": "Is Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid?": {
+      "main": [
+        [
+          {
+            "node": "Find Contact in HubSpot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert: Lead Needs Review",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Rejection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Contact in HubSpot": {
+      "main": [
+        [
+          {
+            "node": "Find Previous Assignment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Previous Assignment": {
+      "main": [
+        [
+          {
+            "node": "Read Config Tabs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Config Tabs": {
+      "main": [
+        [
+          {
+            "node": "Parse Config Tabs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Config Tabs": {
+      "main": [
+        [
+          {
+            "node": "Score & Choose Pool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score & Choose Pool": {
+      "main": [
+        [
+          {
+            "node": "Needs Round-Robin?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Round-Robin?": {
+      "main": [
+        [
+          {
+            "node": "Pick Next Rep (Round-Robin)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finalize Assignment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Next Rep (Round-Robin)": {
+      "main": [
+        [
+          {
+            "node": "Finalize Assignment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Assignment": {
+      "main": [
+        [
+          {
+            "node": "Send to HubSpot?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to HubSpot?": {
+      "main": [
+        [
+          {
+            "node": "Upsert Contact in HubSpot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Notifications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Contact in HubSpot": {
+      "main": [
+        [
+          {
+            "node": "Build Notifications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Notifications": {
+      "main": [
+        [
+          {
+            "node": "Notify in Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify in Slack": {
+      "main": [
+        [
+          {
+            "node": "Is Hot Lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Hot Lead?": {
+      "main": [
+        [
+          {
+            "node": "Email Hot Lead to Rep",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Routed Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Hot Lead to Rep": {
+      "main": [
+        [
+          {
+            "node": "Log Routed Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Routed Lead": {
+      "main": [
+        [
+          {
+            "node": "From Google Sheet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Rejection": {
+      "main": [
+        [
+          {
+            "node": "From Google Sheet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Duplicate": {
+      "main": [
+        [
+          {
+            "node": "From Google Sheet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "From Google Sheet?": {
+      "main": [
+        [
+          {
+            "node": "Update Intake Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "timezone": "America/New_York",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "lrErrorHandler01"
+  },
+  "versionId": "08ed70cc-caba-5800-aace-28c66eebf08d",
+  "id": "lrProcessLead001",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": []
+}

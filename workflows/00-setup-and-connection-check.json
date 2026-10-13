@@ -1,0 +1,483 @@
+{
+  "name": "00 - Setup & Connection Check",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "62220be2-c645-5eb2-a949-d2f253941ddc",
+      "name": "Run Setup",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "065934f7-489c-5d9e-834c-3f2d7a04620f",
+              "name": "config.sheet_id",
+              "value": "PASTE_YOUR_GOOGLE_SHEET_ID_HERE",
+              "type": "string"
+            },
+            {
+              "id": "5cd20f48-b38e-5922-bbb5-cfcf01d3a897",
+              "name": "config.slack_alerts_channel",
+              "value": "#lead-alerts",
+              "type": "string"
+            },
+            {
+              "id": "3e3dc4f0-1427-5b26-a78e-afe968581a7c",
+              "name": "config.hubspot_base_url",
+              "value": "https://api.hubapi.com",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "aa5f2523-0d07-5ec5-8724-a366ab98473e",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ],
+      "notes": "Same values as the Config node in 02 - Process Lead.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Lead Router database schema\n-- Safe to run more than once: every statement uses IF NOT EXISTS or OR REPLACE.\n-- Docker applies this automatically on first start. Workflow \"00 - Setup & Connection Check\"\n-- runs the same statements, which is how you set it up on a hosted Postgres such as Supabase.\n\n-- 1. Idempotency keys: one row per incoming event, claimed atomically.\nCREATE TABLE IF NOT EXISTS processed_events (\n  idem_key        text PRIMARY KEY,\n  source          text NOT NULL,\n  source_event_id text,\n  lead_id         uuid,\n  status          text NOT NULL DEFAULT 'processing'\n                  CHECK (status IN ('processing', 'done', 'rejected')),\n  attempts        integer NOT NULL DEFAULT 1,\n  first_seen_at   timestamptz NOT NULL DEFAULT now(),\n  updated_at      timestamptz NOT NULL DEFAULT now()\n);\n\n-- 2. Round-robin state: when each rep last received a lead.\nCREATE TABLE IF NOT EXISTS rep_rotation (\n  rep_id           text PRIMARY KEY,\n  last_assigned_at timestamptz,\n  assigned_count   integer NOT NULL DEFAULT 0\n);\n\n-- 3. Audit log: one row per event, written by every path through the router.\nCREATE TABLE IF NOT EXISTS lead_log (\n  id              bigserial PRIMARY KEY,\n  logged_at       timestamptz NOT NULL DEFAULT now(),\n  event           text NOT NULL\n                  CHECK (event IN ('routed', 'unassigned', 'duplicate_dropped', 'rejected', 'error')),\n  lead_id         uuid,\n  idem_key        text,\n  source          text,\n  source_event_id text,\n  email           text,\n  company         text,\n  score           integer,\n  priority        text,\n  pool            text,\n  route_type      text,\n  rep_id          text,\n  rep_name        text,\n  reason          text,\n  crm_contact_id  text,\n  crm_is_new      boolean,\n  details         jsonb,\n  workflow_name   text,\n  execution_id    text\n);\nCREATE INDEX IF NOT EXISTS lead_log_logged_at_idx ON lead_log (logged_at DESC);\nCREATE INDEX IF NOT EXISTS lead_log_email_idx ON lead_log (email);\nCREATE INDEX IF NOT EXISTS lead_log_source_event_idx ON lead_log (source_event_id);\n\n-- 4. Results written by the \"99 - Test Runner\" workflow.\nCREATE TABLE IF NOT EXISTS test_results (\n  id        bigserial PRIMARY KEY,\n  run_id    text NOT NULL,\n  test_id   text NOT NULL,\n  title     text,\n  expected  text,\n  actual    text,\n  passed    boolean NOT NULL,\n  ran_at    timestamptz NOT NULL DEFAULT now()\n);\n\n-- 5. Reporting views (handy for screenshots and the Loom walkthrough).\nCREATE OR REPLACE VIEW v_lead_activity AS\nSELECT logged_at, event, source, email, company, score, priority, pool,\n       route_type, rep_name, reason, crm_contact_id, execution_id\nFROM lead_log\nORDER BY logged_at DESC;\n\nCREATE OR REPLACE VIEW v_rep_load AS\nSELECT rep_id, rep_name, pool,\n       count(*) AS leads_assigned,\n       max(logged_at) AS last_assigned_at\nFROM lead_log\nWHERE event = 'routed' AND rep_id IS NOT NULL\nGROUP BY rep_id, rep_name, pool\nORDER BY pool, rep_id;\n\nCREATE OR REPLACE VIEW v_daily_summary AS\nSELECT (logged_at AT TIME ZONE 'America/New_York')::date AS day,\n       count(*) FILTER (WHERE event = 'routed')            AS routed,\n       count(*) FILTER (WHERE event = 'unassigned')        AS unassigned,\n       count(*) FILTER (WHERE event = 'duplicate_dropped') AS duplicates_dropped,\n       count(*) FILTER (WHERE event = 'rejected')          AS rejected,\n       count(*) FILTER (WHERE event = 'error')             AS errors\nFROM lead_log\nGROUP BY 1\nORDER BY 1 DESC;\n\nCREATE OR REPLACE VIEW v_latest_test_run AS\nSELECT test_id, title, passed, expected, actual, ran_at\nFROM test_results\nWHERE run_id = (SELECT run_id FROM test_results ORDER BY ran_at DESC LIMIT 1)\nORDER BY test_id;\n",
+        "options": {}
+      },
+      "id": "b2870e87-6c91-5a92-a91a-1a1dcd2bd0f5",
+      "name": "Create Database Tables",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "lrPostgresCred01",
+          "name": "Lead Router - Postgres"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.config.hubspot_base_url }}/crm/v3/objects/contacts?limit=1",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "options": {}
+      },
+      "id": "b7135337-89b5-5434-8426-b12738ef1b14",
+      "name": "Check HubSpot Access",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "lrHubspotCred001",
+          "name": "Lead Router - HubSpot"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.config.hubspot_base_url }}/account-info/v3/details",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "options": {}
+      },
+      "id": "f1f2e1ea-eff5-5c95-b441-9dfa4af134f0",
+      "name": "Get HubSpot Account",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        300
+      ],
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "lrHubspotCred001",
+          "name": "Lead Router - HubSpot"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.config.hubspot_base_url }}/crm/v3/properties/contacts/groups",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: 'lead_router', label: 'Lead Router', displayOrder: -1 }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "05159a9b-f9f7-5fbb-96a1-fdd67569b0a3",
+      "name": "Create Property Group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        300
+      ],
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "lrHubspotCred001",
+          "name": "Lead Router - HubSpot"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// HubSpot Property Definitions\n// One item per custom contact property in the \"Lead Router\" group.\n// The next node creates each one; a 409 response means it already exists, which is fine.\n\nconst group = 'lead_router';\nconst text = (name, label, description) => ({ name, label, description, groupName: group, type: 'string', fieldType: 'text' });\nconst area = (name, label, description) => ({ name, label, description, groupName: group, type: 'string', fieldType: 'textarea' });\n\nconst properties = [\n  { name: 'lr_lead_score', label: 'Lead Score (Router)', description: 'Score from the lead router scoring rules', groupName: group, type: 'number', fieldType: 'number' },\n  {\n    name: 'lr_priority', label: 'Lead Priority (Router)', description: 'Hot, Warm or Cold', groupName: group,\n    type: 'enumeration', fieldType: 'select',\n    options: [\n      { label: 'Hot', value: 'Hot', displayOrder: 0 },\n      { label: 'Warm', value: 'Warm', displayOrder: 1 },\n      { label: 'Cold', value: 'Cold', displayOrder: 2 },\n    ],\n  },\n  text('lr_assigned_rep', 'Assigned Rep (Router)', 'Rep the router assigned this contact to'),\n  text('lr_assigned_rep_id', 'Assigned Rep ID (Router)', 'rep_id from the reps tab of the config sheet'),\n  area('lr_routing_reason', 'Routing Reason', 'Why the router sent the lead to this rep'),\n  text('lr_source', 'Lead Source (Router)', 'Web form, Webhook or Google Sheet'),\n  text('lr_service_interest', 'Service Interest', 'Service the lead asked about'),\n  text('lr_company_size', 'Company Size Band', 'Employee band, for example 51-200'),\n  text('lr_budget', 'Budget Band', 'Budget band, for example $15k-$50k'),\n  text('lr_timeline', 'Buying Timeline', 'ASAP, 1-3 months, 3-6 months or Just researching'),\n  area('lr_last_message', 'Last Message', 'Most recent message the lead sent'),\n];\n\nreturn properties.map((p) => ({ json: p }));\n"
+      },
+      "id": "dc9ef0c2-84d3-55a7-a8aa-7b8e133e6c52",
+      "name": "HubSpot Property Definitions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.config.hubspot_base_url }}/crm/v3/properties/contacts",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 250
+            }
+          }
+        }
+      },
+      "id": "b151a91b-c770-5be3-a521-41476c23d0de",
+      "name": "Create HubSpot Properties",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        300
+      ],
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "lrHubspotCred001",
+          "name": "Lead Router - HubSpot"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "reps",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "30d8c3b1-afb1-596e-b5b0-5fbc099c0679",
+      "name": "Check Config Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1760,
+        300
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "lrGoogleSACred01",
+          "name": "Lead Router - Google Service Account"
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $('Config').first().json.config.sheet_id }}/values:batchGet?ranges=scoring_rules&ranges=territories&ranges=reps&majorDimension=ROWS",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "da3292fb-4be7-56d2-8b4f-f06156782c14",
+      "name": "Check Config Read (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        300
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "lrGoogleSACred01",
+          "name": "Lead Router - Google Service Account"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.config.slack_alerts_channel }}",
+          "mode": "name"
+        },
+        "text": ":white_check_mark: Lead Router setup check: Slack is connected and can post to this channel.",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "unfurl_links": false,
+          "mrkdwn": true
+        }
+      },
+      "id": "9d1289f5-a4b9-596b-8700-497609017d0b",
+      "name": "Check Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        2200,
+        300
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "lrSlackCred00001",
+          "name": "Lead Router - Slack"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Setup Summary\n// Collects the result of every check above into one readable checklist.\n// Each check node is set to \"continue on error\", so a failure shows up here instead of stopping the run.\n\nconst cfg = $('Config').first().json.config;\nconst results = [];\nconst errorOf = (items) => {\n  const bad = items.find((i) => i.json && i.json.error);\n  if (!bad) return '';\n  const e = bad.json.error;\n  return typeof e === 'string' ? e : (e.message || JSON.stringify(e)).slice(0, 300);\n};\nconst safeAll = (name) => { try { return $(name).all(); } catch (e) { return []; } };\n\n// 1. Postgres\nconst db = safeAll('Create Database Tables');\nresults.push({ check: 'Postgres: lead_router tables', ok: db.length > 0 && !errorOf(db), detail: errorOf(db) || 'Tables and views are in place' });\n\n// 2. HubSpot access and Hub ID\nconst access = safeAll('Check HubSpot Access');\nconst accessOk = access.length > 0 && !errorOf(access) && Array.isArray(access[0].json.results);\nresults.push({\n  check: 'HubSpot: key works and can read contacts',\n  ok: accessOk,\n  detail: accessOk ? 'Contacts API reachable with this key' : (errorOf(access) || 'Unexpected response. Check the key and its crm.objects.contacts scopes.'),\n});\nconst account = safeAll('Get HubSpot Account');\nconst portalId = account[0]?.json?.portalId;\nresults.push({\n  check: 'HubSpot: Hub ID',\n  ok: true,\n  detail: portalId\n    ? `Hub ID ${portalId}. Put this number in hubspot_portal_id in the Config node of \"02 - Process Lead\".`\n    : 'Not returned for this key. Copy it from your HubSpot URL instead (the number after app.hubspot.com/contacts/).',\n});\n\n// 3. HubSpot properties\nconst props = safeAll('Create HubSpot Properties');\nconst statusOf = (i) => Number(i.json.statusCode || 0);\nconst created = props.filter((i) => statusOf(i) === 201).length;\nconst existing = props.filter((i) => statusOf(i) === 409).length;\nconst failed = props.filter((i) => ![201, 409].includes(statusOf(i)));\nconst failMsgs = [...new Set(failed.map((i) => `${statusOf(i) || 'error'} ${String(i.json.body?.message || i.json.error?.message || i.json.error || '').slice(0, 160)}`))];\nresults.push({\n  check: 'HubSpot: Lead Router properties',\n  ok: props.length > 0 && failed.length === 0,\n  detail: failed.length\n    ? `${failed.length} of ${props.length} failed: ${failMsgs.join(' | ')}. A 403 usually means the key is missing the crm.schemas.contacts.write scope.`\n    : `${created} created, ${existing} already existed`,\n});\n\n// 4. Google Sheet\nconst reps = safeAll('Check Config Sheet');\nconst repRows = reps.filter((i) => i.json && i.json.rep_id);\nresults.push({\n  check: 'Google Sheets: config sheet readable',\n  ok: repRows.length > 0,\n  detail: repRows.length ? `${repRows.length} reps found in the reps tab` : (errorOf(reps) || `No reps found. Check sheet_id (${cfg.sheet_id}) and that the sheet is shared with the service account.`),\n});\n\n// 4b. One-call read of all three config tabs (what 02 - Process Lead uses)\nconst tabsRead = safeAll('Check Config Read (HTTP)');\nconst tabsRes = tabsRead[0]?.json || {};\nconst tabsStatus = Number(tabsRes.statusCode || 0);\nconst tabRanges = tabsRes.body?.valueRanges || [];\nconst tabsOk = tabsStatus === 200 && tabRanges.length === 3 && tabRanges.every((r) => (r.values || []).length > 1);\nconst tabsMsg = String(tabsRes.body?.error?.message || errorOf(tabsRead) || '').slice(0, 200);\nresults.push({\n  check: 'Google Sheets: one-call read of the three config tabs',\n  ok: tabsOk,\n  detail: tabsOk\n    ? 'scoring_rules, territories and reps read in a single request'\n    : `HTTP ${tabsStatus || 'error'}${tabsMsg ? `: ${tabsMsg}` : ''}. In the \"Lead Router - Google Service Account\" credential, turn on \"Set up for use in HTTP Request node\" and set Scope(s) to https://www.googleapis.com/auth/spreadsheets.readonly`,\n});\n\n// 5. Slack\nconst slack = safeAll('Check Slack');\nresults.push({\n  check: 'Slack: can post to the alerts channel',\n  ok: slack.length > 0 && !errorOf(slack) && slack[0].json.ok !== false,\n  detail: errorOf(slack) || `Test message posted to ${cfg.slack_alerts_channel}`,\n});\n\nconst allOk = results.every((r) => r.ok);\nreturn [\n  { json: { summary: allOk ? 'ALL CHECKS PASSED. You are ready to publish \"01 - Lead Intake\".' : `${results.filter((r) => !r.ok).length} check(s) failed. Fix them and run this workflow again.` } },\n  ...results.map((r) => ({ json: { status: r.ok ? 'PASS' : 'FAIL', ...r } })),\n];\n"
+      },
+      "id": "0ae4268c-9cb2-52a3-89a6-a71db573cf6d",
+      "name": "Setup Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 00 - Setup & Connection Check\nRun this once after adding your credentials (and again any time something looks wrong). It creates the database tables and the HubSpot \"Lead Router\" properties, then checks Postgres, HubSpot, Google Sheets and Slack. Open **Setup Summary** to see PASS or FAIL for each.\n\nSafe to run more than once.",
+        "height": 170,
+        "width": 2640,
+        "color": 5
+      },
+      "id": "593677c5-61be-5d6d-b75b-ef9f72fc69e5",
+      "name": "Note: Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        40
+      ]
+    }
+  ],
+  "connections": {
+    "Run Setup": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Create Database Tables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Database Tables": {
+      "main": [
+        [
+          {
+            "node": "Check HubSpot Access",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check HubSpot Access": {
+      "main": [
+        [
+          {
+            "node": "Get HubSpot Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get HubSpot Account": {
+      "main": [
+        [
+          {
+            "node": "Create Property Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Property Group": {
+      "main": [
+        [
+          {
+            "node": "HubSpot Property Definitions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HubSpot Property Definitions": {
+      "main": [
+        [
+          {
+            "node": "Create HubSpot Properties",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create HubSpot Properties": {
+      "main": [
+        [
+          {
+            "node": "Check Config Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Config Sheet": {
+      "main": [
+        [
+          {
+            "node": "Check Config Read (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Config Read (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Check Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Slack": {
+      "main": [
+        [
+          {
+            "node": "Setup Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "timezone": "America/New_York",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "85bb8c1c-6417-53f5-9862-0437adff1522",
+  "id": "lrSetupCheck0000",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": []
+}

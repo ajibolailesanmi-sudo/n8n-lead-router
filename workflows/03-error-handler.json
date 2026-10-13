@@ -1,0 +1,256 @@
+{
+  "name": "03 - Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "9eea6864-a588-5418-95c6-4550a4ea655a",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5cd20f48-b38e-5922-bbb5-cfcf01d3a897",
+              "name": "config.slack_alerts_channel",
+              "value": "#lead-alerts",
+              "type": "string"
+            },
+            {
+              "id": "da2565d2-56b3-58fb-92d4-b7ef7ba4603f",
+              "name": "config.alert_email",
+              "value": "you@example.com",
+              "type": "string"
+            },
+            {
+              "id": "fb10d32c-28b4-58b1-ae57-8e9743eaf990",
+              "name": "config.from_email",
+              "value": "you@example.com",
+              "type": "string"
+            },
+            {
+              "id": "be02411a-674a-5325-9ffb-3e176bf7fd56",
+              "name": "config.timezone",
+              "value": "America/New_York",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "9bc1acf7-28d2-5033-89a3-709b1d7a21b8",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        300
+      ],
+      "notes": "Where failure alerts go. Set alert_email and from_email to your address.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Alert\n// Turns the Error Trigger payload into a Slack message, an email and an audit log record.\n// Handles both shapes n8n sends: a failed execution, or a trigger that failed to start.\n\nconst cfg = $('Config').first().json.config;\nconst e = $input.first().json;\nconst exec = e.execution || {};\nconst trig = e.trigger || {};\nconst err = exec.error || trig.error || {};\n\nconst workflowName = e.workflow?.name || 'Unknown workflow';\nconst failedNode = exec.lastNodeExecuted || err.node?.name || (e.trigger ? 'Trigger' : 'Unknown step');\nconst message = String(err.message || 'No error message was provided');\nconst description = String(err.description || '');\nconst executionId = exec.id ? String(exec.id) : '';\nconst url = exec.url || '';\nconst when = new Date().toLocaleString('en-US', { timeZone: cfg.timezone || 'America/New_York' });\n\nconst slackText = [\n  `:rotating_light: *Workflow failed: ${workflowName}*`,\n  `*Step:* ${failedNode}`,\n  `*Error:* ${message}`,\n  description ? `*Details:* ${description.slice(0, 500)}` : null,\n  `*Execution:* ${url ? `<${url}|Open execution ${executionId}>` : executionId || 'n/a'}${exec.retryOf ? ` (retry of ${exec.retryOf})` : ''}`,\n  `*When:* ${when}`,\n  '_Fix the cause, open the execution and click Retry. Writes are idempotent, so a retry cannot create duplicates._',\n].filter(Boolean).join('\\n');\n\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst emailHtml = `\n<p><strong>${esc(workflowName)}</strong> failed at step <strong>${esc(failedNode)}</strong>.</p>\n<p><strong>Error:</strong> ${esc(message)}</p>\n${description ? `<p><strong>Details:</strong> ${esc(description.slice(0, 1000))}</p>` : ''}\n<p><strong>When:</strong> ${esc(when)}</p>\n${url ? `<p><a href=\"${url}\">Open execution ${esc(executionId)}</a></p>` : ''}\n<p>Fix the cause, open the execution and click Retry. Writes are idempotent, so a retry cannot create duplicates.</p>`;\n\nreturn [{\n  json: {\n    slack_text: slackText,\n    email_subject: `[Lead Router] ${workflowName} failed at \"${failedNode}\"`,\n    email_html: emailHtml,\n    log_record: {\n      event: 'error',\n      reason: message.slice(0, 1000),\n      details: {\n        workflow_id: e.workflow?.id || null,\n        workflow_name: workflowName,\n        failed_node: failedNode,\n        description,\n        execution_id: executionId || null,\n        execution_url: url || null,\n        retry_of: exec.retryOf || null,\n        mode: exec.mode || trig.mode || null,\n      },\n      workflow_name: workflowName,\n      execution_id: executionId || null,\n    },\n  },\n}];\n"
+      },
+      "id": "e4d217a7-9d12-5d46-aaff-f3b72ed8f00a",
+      "name": "Build Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.config.slack_alerts_channel }}",
+          "mode": "name"
+        },
+        "text": "={{ $json.slack_text }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false,
+          "unfurl_links": false,
+          "mrkdwn": true
+        }
+      },
+      "id": "ce12d31b-7c50-5956-afc9-1a18c58f4d0b",
+      "name": "Alert in Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        660,
+        300
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "lrSlackCred00001",
+          "name": "Lead Router - Slack"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $('Config').first().json.config.from_email }}",
+        "toEmail": "={{ $('Config').first().json.config.alert_email }}",
+        "subject": "={{ $('Build Alert').first().json.email_subject }}",
+        "emailFormat": "html",
+        "html": "={{ $('Build Alert').first().json.email_html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "41ec03ea-715e-5394-a342-e757388b82fd",
+      "name": "Alert by Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        880,
+        300
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "lrSmtpCred000001",
+          "name": "Lead Router - SMTP"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Keep failed runs in the same audit log as everything else.\nINSERT INTO lead_log (event, reason, details, workflow_name, execution_id)\nSELECT event, reason, details, workflow_name, execution_id\nFROM jsonb_populate_record(NULL::lead_log, $1::jsonb)\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($('Build Alert').first().json.log_record) ] }}"
+        }
+      },
+      "id": "9043fd66-effd-59b3-b726-79c3961fe79d",
+      "name": "Log Error",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1100,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "lrPostgresCred01",
+          "name": "Lead Router - Postgres"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## 03 - Error Handler\nRuns whenever 01 or 02 fails (set in their workflow settings). Sends the failed step, error and a link to the execution to Slack **and** email, so an alert still arrives if Slack is the thing that broke. Each alert step continues on error.",
+        "height": 160,
+        "width": 1300,
+        "color": 3
+      },
+      "id": "6aa06f8c-3806-5287-95e4-2e96b3eb7260",
+      "name": "Note: Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        60
+      ]
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Build Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Alert": {
+      "main": [
+        [
+          {
+            "node": "Alert in Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert in Slack": {
+      "main": [
+        [
+          {
+            "node": "Alert by Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert by Email": {
+      "main": [
+        [
+          {
+            "node": "Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "timezone": "America/New_York",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "ad1f4b0a-4354-5574-afae-bd1707ad93bb",
+  "id": "lrErrorHandler01",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": []
+}

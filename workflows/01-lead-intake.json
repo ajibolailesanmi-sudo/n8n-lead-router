@@ -1,0 +1,1075 @@
+{
+  "name": "01 - Lead Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Contact Sales",
+        "formDescription": "Tell us about your business and a specialist will get back to you within one business day.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "First name",
+              "fieldName": "first_name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Last name",
+              "fieldName": "last_name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Work email",
+              "fieldName": "email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Phone",
+              "fieldName": "phone",
+              "placeholder": "(555) 555-0100"
+            },
+            {
+              "fieldLabel": "Company",
+              "fieldName": "company",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Job title",
+              "fieldName": "job_title"
+            },
+            {
+              "fieldLabel": "State (US)",
+              "fieldName": "state",
+              "placeholder": "e.g. NY or New York"
+            },
+            {
+              "fieldLabel": "Country",
+              "fieldName": "country",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "United States"
+                  },
+                  {
+                    "option": "Canada"
+                  },
+                  {
+                    "option": "United Kingdom"
+                  },
+                  {
+                    "option": "Other"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Company size (employees)",
+              "fieldName": "company_size",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "1-10"
+                  },
+                  {
+                    "option": "11-50"
+                  },
+                  {
+                    "option": "51-200"
+                  },
+                  {
+                    "option": "201-1000"
+                  },
+                  {
+                    "option": "1000+"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Budget",
+              "fieldName": "budget",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Under $5k"
+                  },
+                  {
+                    "option": "$5k-$15k"
+                  },
+                  {
+                    "option": "$15k-$50k"
+                  },
+                  {
+                    "option": "$50k+"
+                  },
+                  {
+                    "option": "Not sure"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "What do you need help with?",
+              "fieldName": "service_interest",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Managed IT Support"
+                  },
+                  {
+                    "option": "Cybersecurity"
+                  },
+                  {
+                    "option": "Cloud Migration"
+                  },
+                  {
+                    "option": "Microsoft 365 Setup"
+                  },
+                  {
+                    "option": "IT Consulting"
+                  },
+                  {
+                    "option": "Other"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Timeline",
+              "fieldName": "timeline",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "ASAP"
+                  },
+                  {
+                    "option": "1-3 months"
+                  },
+                  {
+                    "option": "3-6 months"
+                  },
+                  {
+                    "option": "Just researching"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Anything else we should know?",
+              "fieldName": "message",
+              "fieldType": "textarea"
+            }
+          ]
+        },
+        "responseMode": "onReceived",
+        "options": {
+          "path": "contact-sales",
+          "appendAttribution": false,
+          "buttonLabel": "Send",
+          "ignoreBots": true,
+          "customCss": ":root {\n  --color-submit-btn-bg: #1f3a5f;\n  --color-focus-border: #1f3a5f;\n  --color-header: #1f3a5f;\n  --color-required: #c0392b;\n  --font-size-header: 22px;\n}",
+          "respondWithOptions": {
+            "values": {
+              "respondWith": "text",
+              "formSubmittedText": "Thanks! A specialist will contact you within one business day."
+            }
+          }
+        }
+      },
+      "id": "1fc47432-8d81-530b-84d1-d4248119a0d8",
+      "name": "Contact Sales Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        0,
+        120
+      ],
+      "webhookId": "1b826c16-e37d-50cc-9659-5d1a008fbbda"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7258ccfb-f8c4-545e-ab74-a25b37776f02",
+              "name": "source",
+              "value": "form",
+              "type": "string"
+            },
+            {
+              "id": "23f9ebc7-3bd2-550e-83eb-eccad1657c9d",
+              "name": "source_event_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "2ca44781-42a9-57c6-99c6-bf2f2eabc72e",
+              "name": "submitted_at",
+              "value": "={{ $json.submittedAt }}",
+              "type": "string"
+            },
+            {
+              "id": "256d458e-3f19-5e14-a7fb-d71ae882b31e",
+              "name": "first_name",
+              "value": "={{ $json.first_name || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "fcf13f34-efbb-5cd5-a0a8-a7c3ea969167",
+              "name": "last_name",
+              "value": "={{ $json.last_name || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "00c3ea1d-3def-5130-b223-6160ee95de6e",
+              "name": "email",
+              "value": "={{ $json.email || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "c5fa15ac-419a-50b8-8c89-9b1da99746fe",
+              "name": "phone",
+              "value": "={{ $json.phone || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "7c33ca4d-3e7f-5e29-9ece-3c1e5279543c",
+              "name": "company",
+              "value": "={{ $json.company || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "e967e06b-5519-50d5-b9fe-71e49e4e51b2",
+              "name": "job_title",
+              "value": "={{ $json.job_title || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a8a0cb53-45f3-54ee-9593-6701f051ff6d",
+              "name": "state",
+              "value": "={{ $json.state || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "03bd0b94-2f23-58ea-84a4-4f15c3240f8a",
+              "name": "country",
+              "value": "={{ $json.country || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "d5308150-c520-5c15-8d08-b35b60774307",
+              "name": "company_size",
+              "value": "={{ $json.company_size || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "5f112aa9-4d9a-5fb0-ac25-1703f09d867e",
+              "name": "budget",
+              "value": "={{ $json.budget || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "59f7cf87-cdad-527b-bdd8-a0680efecb89",
+              "name": "service_interest",
+              "value": "={{ $json.service_interest || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "96c595ce-d0b8-5e54-932f-1aab91d501cb",
+              "name": "timeline",
+              "value": "={{ $json.timeline || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "95b871c6-e8fe-59a2-a4ec-5ab104189b71",
+              "name": "message",
+              "value": "={{ $json.message || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "792894a8-83a3-5286-bd42-c2cbd9e8b43b",
+      "name": "Map Form Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-intake",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {
+          "responseCode": {
+            "values": {
+              "responseCode": "customCode",
+              "customCode": 202
+            }
+          },
+          "responseData": "{\"status\":\"accepted\",\"message\":\"Lead received and queued for routing\"}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "51873288-0e33-5124-b65d-f7a288e2cd58",
+      "name": "Lead Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        340
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "lrWebhookKey0001",
+          "name": "Lead Router - Webhook API Key"
+        }
+      },
+      "webhookId": "757f11bd-ee16-5afd-86b3-656d5132b53f"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3141ce6a-66d9-5114-8c35-458c561d66d6",
+              "name": "source",
+              "value": "webhook",
+              "type": "string"
+            },
+            {
+              "id": "1518bbee-85ac-5199-80a7-b1e409f2846c",
+              "name": "source_event_id",
+              "value": "={{ String($json.headers['x-event-id'] ?? $json.body.event_id ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "fbed1bb5-e402-532e-85e7-3dead2b4b4b3",
+              "name": "submitted_at",
+              "value": "={{ String($json.body.submitted_at ?? $json.body.submittedAt ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "06f4639b-a6f2-5afb-932e-5b1b5eb891e3",
+              "name": "name",
+              "value": "={{ String($json.body.name ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "c9e00f84-2927-5100-b70e-692324c56b7f",
+              "name": "first_name",
+              "value": "={{ String($json.body.first_name ?? $json.body.firstName ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "84bd4a9f-573f-5544-97fa-7cf66dfb451f",
+              "name": "last_name",
+              "value": "={{ String($json.body.last_name ?? $json.body.lastName ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "75db4e0f-e9e8-5ef7-8869-319fe711c206",
+              "name": "email",
+              "value": "={{ String($json.body.email ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "c33625ea-c816-5c29-b9e7-d540e023e096",
+              "name": "phone",
+              "value": "={{ String($json.body.phone ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "4c93d8f8-e578-5984-9d49-9d87efaa3d79",
+              "name": "company",
+              "value": "={{ String($json.body.company ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "2c7b4d92-cdb7-5777-8640-caefc8cc3119",
+              "name": "job_title",
+              "value": "={{ String($json.body.job_title ?? $json.body.jobTitle ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "6775f10a-982e-5ed9-8eb4-461ad0ba6146",
+              "name": "state",
+              "value": "={{ String($json.body.state ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "6e560b87-b8b7-52b9-b813-afe2da74f2d5",
+              "name": "country",
+              "value": "={{ String($json.body.country ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "b78b2825-c99a-5130-abc3-005a47be8b92",
+              "name": "company_size",
+              "value": "={{ String($json.body.company_size ?? $json.body.companySize ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "cf70675b-5d5a-5f8a-b641-d79c80e1bbce",
+              "name": "budget",
+              "value": "={{ String($json.body.budget ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "6590aa63-15b7-587e-86db-e5c62663342a",
+              "name": "service_interest",
+              "value": "={{ String($json.body.service_interest ?? $json.body.serviceInterest ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "74606020-d0aa-5c20-bba3-6434394d1c7a",
+              "name": "timeline",
+              "value": "={{ String($json.body.timeline ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "8cf40e10-7a63-5eac-8c13-764a4ccd026e",
+              "name": "message",
+              "value": "={{ String($json.body.message ?? '') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "8c5d9d81-41d7-5b4c-8f6e-f8f2c6418cbe",
+      "name": "Map Webhook Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "lrProcessLead001",
+          "mode": "list",
+          "cachedResultName": "02 - Process Lead",
+          "cachedResultUrl": "/workflow/lrProcessLead001"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "d9f18e1a-6b03-5056-9c52-de8640298c7a",
+      "name": "Send to Process Lead",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        500,
+        230
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "772f34ce-7ecb-5c4c-8c70-1b025404dd68",
+      "name": "Every 2 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "065934f7-489c-5d9e-834c-3f2d7a04620f",
+              "name": "config.sheet_id",
+              "value": "PASTE_YOUR_GOOGLE_SHEET_ID_HERE",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "d4d6769e-e3d2-569e-9487-8063f0d2e2d4",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        640
+      ],
+      "notes": "Paste the ID of your config Google Sheet here (the long code in the sheet URL).",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "intake",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "56738ca4-783f-52e6-80cf-4e1348439256",
+      "name": "Read Intake Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        440,
+        640
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "lrGoogleSACred01",
+          "name": "Lead Router - Google Service Account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0d4a1aae-7ac7-56c9-aa44-8924a4e8a315",
+              "leftValue": "={{ String($json.status ?? '').trim() === '' && (String($json.first_name ?? '') + String($json.email ?? '') + String($json.company ?? '')).trim() !== '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a80cd3d0-5eb6-5951-a848-69e213242c59",
+      "name": "New Rows Only",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.config.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "intake",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "status": "queued"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "798a46c4-49ca-587f-b699-f4dfcff79280",
+      "name": "Mark Rows Queued",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        880,
+        640
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "lrGoogleSACred01",
+          "name": "Lead Router - Google Service Account"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// The update node returns only the cells it wrote, so bring back the full rows.\nreturn $('New Rows Only').all();"
+      },
+      "id": "9641ceb3-9cb7-5728-ad40-a31f7fa597ab",
+      "name": "Restore Row Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1ae06490-b2c2-5631-bcc3-5a70c5de679f",
+              "name": "source",
+              "value": "sheet",
+              "type": "string"
+            },
+            {
+              "id": "23f9ebc7-3bd2-550e-83eb-eccad1657c9d",
+              "name": "source_event_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "16e6627c-84f7-515f-8211-00fb6cb294ee",
+              "name": "submitted_at",
+              "value": "={{ String($json.added_at ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "7194aeef-2fdd-543f-a190-dff4e61fe75f",
+              "name": "sheet_row_number",
+              "value": "={{ $json.row_number }}",
+              "type": "number"
+            },
+            {
+              "id": "abc53192-eab9-506e-8c25-bd4ab92b35dc",
+              "name": "first_name",
+              "value": "={{ String($json.first_name ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "3e49d5ae-7429-57f4-b0f1-819392f50a2e",
+              "name": "last_name",
+              "value": "={{ String($json.last_name ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "11aad83f-c10b-5184-b6df-2cf27acffc15",
+              "name": "email",
+              "value": "={{ String($json.email ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "333faeb2-58bf-5d38-a55f-50ef5de91c0c",
+              "name": "phone",
+              "value": "={{ String($json.phone ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "6d4bf1db-8731-5dd2-a010-1c481eb81c16",
+              "name": "company",
+              "value": "={{ String($json.company ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "62b84109-987c-571d-aaa8-929575487f71",
+              "name": "job_title",
+              "value": "={{ String($json.job_title ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "99a50408-8871-59c3-ba1f-b53e9e5d8a59",
+              "name": "state",
+              "value": "={{ String($json.state ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "bffb4c3e-ded0-594e-9e2e-0773a9075344",
+              "name": "country",
+              "value": "={{ String($json.country ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "10a2b97c-c474-5f07-8f69-593c5d78d656",
+              "name": "company_size",
+              "value": "={{ String($json.company_size ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "a26a741e-efb3-5a30-abc6-c9d717b2057b",
+              "name": "budget",
+              "value": "={{ String($json.budget ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "4637e405-d709-5a19-9297-bda3e9baa28c",
+              "name": "service_interest",
+              "value": "={{ String($json.service_interest ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "2f048eca-748c-5141-9b26-949f32b94b5a",
+              "name": "timeline",
+              "value": "={{ String($json.timeline ?? '') }}",
+              "type": "string"
+            },
+            {
+              "id": "f1ca51c2-1baa-502e-86ad-6fd26d9854f4",
+              "name": "message",
+              "value": "={{ String($json.notes ?? '') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "7af687fd-fbf8-50de-9207-1c8cb4189a57",
+      "name": "Map Sheet Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1320,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "1833aa32-20af-56de-b13e-c3ab1576c952",
+      "name": "Loop Over Rows",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1540,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "lrProcessLead001",
+          "mode": "list",
+          "cachedResultName": "02 - Process Lead",
+          "cachedResultUrl": "/workflow/lrProcessLead001"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "1259aab3-8b55-57ab-8533-3ad54e4d3c08",
+      "name": "Send Row to Process Lead",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1780,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 01 - Lead Intake\nEach source maps its fields into one standard lead record, then hands it to **02 - Process Lead** without waiting. Adding a source later means one trigger plus one mapping node.",
+        "height": 130,
+        "width": 760,
+        "color": 5
+      },
+      "id": "35b52c1d-fafc-5a7d-90b1-d7839b795d19",
+      "name": "Note: Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -150
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Web form and webhook\nForm: `/form/contact-sales`\nWebhook: `POST /webhook/lead-intake` with header `X-API-Key`. It answers **202 Accepted** at once and processes after.",
+        "height": 480,
+        "width": 760,
+        "color": 7
+      },
+      "id": "df81c752-947b-5693-8673-142acc011a38",
+      "name": "Note: Form and webhook",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Google Sheet intake\nEvery 2 minutes: read the `intake` tab, take rows with a blank status, mark them `queued`, then send each one. Process Lead writes the final status back to the row.",
+        "height": 420,
+        "width": 2020,
+        "color": 4
+      },
+      "id": "40b55d04-ed24-575c-b179-24d093fa498e",
+      "name": "Note: Sheet",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "Contact Sales Form": {
+      "main": [
+        [
+          {
+            "node": "Map Form Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Form Fields": {
+      "main": [
+        [
+          {
+            "node": "Send to Process Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Webhook": {
+      "main": [
+        [
+          {
+            "node": "Map Webhook Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Webhook Fields": {
+      "main": [
+        [
+          {
+            "node": "Send to Process Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 2 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Read Intake Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Intake Sheet": {
+      "main": [
+        [
+          {
+            "node": "New Rows Only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New Rows Only": {
+      "main": [
+        [
+          {
+            "node": "Mark Rows Queued",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Rows Queued": {
+      "main": [
+        [
+          {
+            "node": "Restore Row Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Row Data": {
+      "main": [
+        [
+          {
+            "node": "Map Sheet Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Sheet Fields": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Rows": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Send Row to Process Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Row to Process Lead": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "timezone": "America/New_York",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "lrErrorHandler01"
+  },
+  "versionId": "c7afebfd-ecfb-51a2-be1b-70d179ed6824",
+  "id": "lrIntake00000001",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": []
+}

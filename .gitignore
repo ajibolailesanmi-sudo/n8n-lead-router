@@ -1,0 +1,11 @@
+# Secrets
+.env
+*.pem
+*service-account*.json
+# Google service account keys downloaded into the project root by mistake
+/*.json
+
+# OS and editor files
+.DS_Store
+.vscode/
+.idea/

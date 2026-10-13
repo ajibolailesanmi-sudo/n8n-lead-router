@@ -1,0 +1,8 @@
+rep_id,name,email,pool,available,slack_member_id,hubspot_owner_id,notes
+rep_maya,Maya Chen,you+maya@example.com,east,TRUE,,,East territory
+rep_daniel,Daniel Okafor,you+daniel@example.com,east,TRUE,,,East territory
+rep_priya,Priya Raman,you+priya@example.com,west,TRUE,,,West territory
+rep_luis,Luis Ortega,you+luis@example.com,west,TRUE,,,West territory
+rep_sarah,Sarah Whitfield,you+sarah@example.com,enterprise,TRUE,,,"Enterprise AE, takes Hot leads"
+rep_james,James Adeyemi,you+james@example.com,enterprise,TRUE,,,"Enterprise AE, takes Hot leads"
+rep_rachel,Rachel Kim,you+rachel@example.com,manager,TRUE,,,"Sales Manager, fallback when no rep is available"

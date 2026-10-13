@@ -1,0 +1,12 @@
+rule_id,field,operator,value,points,label,active
+R01,company_size_band,in,"51-200,201-1000",20,Mid-market company,TRUE
+R02,company_size_band,equals,1000+,30,Enterprise company,TRUE
+R03,budget_band,equals,$5k-$15k,10,Budget $5k-$15k,TRUE
+R04,budget_band,equals,$15k-$50k,20,Budget $15k-$50k,TRUE
+R05,budget_band,equals,$50k+,30,Budget $50k+,TRUE
+R06,service_interest,in,"Cybersecurity,Cloud Migration",15,High-value service,TRUE
+R07,timeline,equals,ASAP,15,Buying now,TRUE
+R08,timeline,equals,1-3 months,10,Buying this quarter,TRUE
+R09,email_type,equals,business,10,Business email,TRUE
+R10,job_title,contains_any,"owner,founder,ceo,cto,cio,coo,cfo,ciso,chief,president,vp,svp,evp,vice president,director,head of",10,Decision-maker title,TRUE
+R11,country,equals,US,5,US-based,TRUE

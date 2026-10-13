@@ -1,0 +1,52 @@
+state_code,state_name,pool
+AL,Alabama,east
+AK,Alaska,west
+AZ,Arizona,west
+AR,Arkansas,east
+CA,California,west
+CO,Colorado,west
+CT,Connecticut,east
+DE,Delaware,east
+DC,District of Columbia,east
+FL,Florida,east
+GA,Georgia,east
+HI,Hawaii,west
+ID,Idaho,west
+IL,Illinois,east
+IN,Indiana,east
+IA,Iowa,east
+KS,Kansas,east
+KY,Kentucky,east
+LA,Louisiana,east
+ME,Maine,east
+MD,Maryland,east
+MA,Massachusetts,east
+MI,Michigan,east
+MN,Minnesota,east
+MS,Mississippi,east
+MO,Missouri,east
+MT,Montana,west
+NE,Nebraska,east
+NV,Nevada,west
+NH,New Hampshire,east
+NJ,New Jersey,east
+NM,New Mexico,west
+NY,New York,east
+NC,North Carolina,east
+ND,North Dakota,east
+OH,Ohio,east
+OK,Oklahoma,east
+OR,Oregon,west
+PA,Pennsylvania,east
+RI,Rhode Island,east
+SC,South Carolina,east
+SD,South Dakota,east
+TN,Tennessee,east
+TX,Texas,east
+UT,Utah,west
+VT,Vermont,east
+VA,Virginia,east
+WA,Washington,west
+WV,West Virginia,east
+WI,Wisconsin,east
+WY,Wyoming,west
